@@ -1,0 +1,32 @@
+# Entorno / secretos
+.env
+.env.local
+
+# Almacenamiento de trabajo (uploads, temporales, outputs)
+storage/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Medios (por si acaso, fuera de storage/)
+*.mp4
+*.mov
+*.mkv
+*.wav
+*.mp3
+*.m4a
+
+# Sistema / editores
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Tooling local
+.claude/

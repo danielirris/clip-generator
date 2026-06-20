@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clip Generator — clips verticales automáticos</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="container">
+    <header>
+      <h1>🎬 Clip Generator</h1>
+      <p class="subtitle">
+        Sube un video largo y genera un clip vertical de
+        {{ duracion_total_s }}s con los momentos más impactantes y subtítulos.
+      </p>
+    </header>
+
+    <section id="upload-card" class="card">
+      <form id="upload-form">
+        <label for="file" class="dropzone" id="dropzone">
+          <span class="dz-icon">⬆️</span>
+          <span class="dz-text">Arrastra tu video aquí o haz clic para elegir</span>
+          <span class="dz-hint">mp4, mov o mkv · máx {{ max_upload_mb }} MB</span>
+          <input type="file" id="file" name="file" accept=".mp4,.mov,.mkv" hidden>
+        </label>
+        <p id="filename" class="filename"></p>
+        <button type="submit" id="submit-btn" disabled>Generar clip</button>
+      </form>
+    </section>
+
+    <section id="progress-card" class="card hidden">
+      <h2 id="status-label">Procesando…</h2>
+      <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+      <p id="progress-msg" class="progress-msg"></p>
+      <p id="aviso" class="aviso hidden"></p>
+    </section>
+
+    <section id="result-card" class="card hidden">
+      <h2>✅ ¡Tu clip está listo!</h2>
+      <video id="preview" class="preview" controls playsinline></video>
+      <a id="download-link" class="download-btn" href="#" download>⬇️ Descargar clip</a>
+      <button id="new-btn" class="secondary">Generar otro</button>
+    </section>
+
+    <section id="error-card" class="card hidden">
+      <h2>❌ Algo salió mal</h2>
+      <p id="error-msg" class="error-msg"></p>
+      <button id="retry-btn" class="secondary">Reintentar</button>
+    </section>
+
+    <footer>
+      <p>La IA pesada corre en la nube (Groq + Gemini). El servidor solo orquesta y usa FFmpeg.</p>
+    </footer>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

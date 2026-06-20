@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+.env.local
+storage/
+tests/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.md
+*.mp4
+*.mov
+*.mkv
+.DS_Store
