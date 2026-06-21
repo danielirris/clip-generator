@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # --- Remotion ---
     remotion_export: bool = True  # exportar proyecto Remotion editable por job
 
+    # --- Recursos (estabilidad en VPS) ---
+    ffmpeg_threads: int = 1       # hilos de FFmpeg (1 = menor pico de CPU/RAM)
+
     # --- Semilla para variar cortes/transiciones de forma reproducible ---
     seed: int = 1234
 

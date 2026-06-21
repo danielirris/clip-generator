@@ -27,9 +27,10 @@ RUN mkdir -p /app/storage
 
 EXPOSE 8000
 
-# Healthcheck para EasyPanel / Docker.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import urllib.request,os,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8000')+'/healthz').status==200 else sys.exit(1)"
+# Healthcheck tolerante: durante un render pesado el contenedor sigue vivo,
+# así que damos margen para no reiniciarlo por error (timeout/retries amplios).
+HEALTHCHECK --interval=30s --timeout=15s --start-period=60s --retries=5 \
+    CMD python -c "import urllib.request,os,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8000')+'/healthz', timeout=12).status==200 else sys.exit(1)"
 
 # Arranque: lee el puerto de la env PORT.
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]

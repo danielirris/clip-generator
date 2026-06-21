@@ -146,7 +146,7 @@ def _escape_filter_path(path: Path) -> str:
 
 def build_beat_cmd(
     source: Path, beat_start: float, beat_dur: float, dest: Path,
-    modo_fondo: str, ass_path: Path | None = None,
+    modo_fondo: str, ass_path: Path | None = None, threads: int = 1,
 ) -> list[str]:
     """Comando FFmpeg para extraer y normalizar un fragmento (sin audio)."""
     vfilter = build_video_filter(modo_fondo)
@@ -156,11 +156,11 @@ def build_beat_cmd(
     else:
         vlabel = "[v]"
     return [
-        "ffmpeg", "-y",
+        "ffmpeg", "-y", "-threads", str(threads),
         "-ss", f"{beat_start:.3f}", "-i", str(source), "-t", f"{beat_dur:.3f}",
-        "-filter_complex", vfilter,
+        "-filter_complex", vfilter, "-filter_threads", str(threads),
         "-map", vlabel, "-an",          # sin audio (la música se añade al final)
-        *_VIDEO_ENC, str(dest),
+        *_VIDEO_ENC, "-threads", str(threads), str(dest),
     ]
 
 
@@ -172,19 +172,20 @@ def build_concat_cmd(list_file: Path, dest: Path) -> list[str]:
     ]
 
 
-def build_concat_filter_cmd(files: list[Path], dest: Path) -> list[str]:
+def build_concat_filter_cmd(files: list[Path], dest: Path, threads: int = 1) -> list[str]:
     """Concatena con el filtro ``concat`` (re-codifica, PTS limpios para xfade).
 
     El demuxer ``concat`` con ``-c copy`` deja timestamps que ``xfade`` interpreta
     mal; el filtro ``concat`` produce una secuencia con PTS continuos correctos.
     """
-    cmd: list[str] = ["ffmpeg", "-y"]
+    cmd: list[str] = ["ffmpeg", "-y", "-threads", str(threads)]
     for f in files:
         cmd += ["-i", str(f)]
     labels = "".join(f"[{i}:v]" for i in range(len(files)))
     cmd += [
         "-filter_complex", f"{labels}concat=n={len(files)}:v=1:a=0[v]",
-        "-map", "[v]", *_VIDEO_ENC, str(dest),
+        "-filter_threads", str(threads),
+        "-map", "[v]", *_VIDEO_ENC, "-threads", str(threads), str(dest),
     ]
     return cmd
 
@@ -224,10 +225,10 @@ def _xfade_offsets(durs: list[float], overlap: float) -> list[float]:
 
 def build_xfade_cmd(
     seg_files: list[Path], durs: list[float], types: list[str],
-    overlap: float, dest: Path,
+    overlap: float, dest: Path, threads: int = 1,
 ) -> list[str]:
     """Encadena bloques con xfade (transiciones) re-codificando una vez."""
-    cmd: list[str] = ["ffmpeg", "-y"]
+    cmd: list[str] = ["ffmpeg", "-y", "-threads", str(threads)]
     for f in seg_files:
         cmd += ["-i", str(f)]
     offsets = _xfade_offsets(durs, overlap)
@@ -240,7 +241,8 @@ def build_xfade_cmd(
             f"duration={overlap}:offset={offsets[i - 1]}{out}"
         )
         prev = out
-    cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]", *_VIDEO_ENC, str(dest)]
+    cmd += ["-filter_complex", ";".join(parts), "-filter_threads", str(threads),
+            "-map", "[vout]", *_VIDEO_ENC, "-threads", str(threads), str(dest)]
     return cmd
 
 
@@ -278,12 +280,12 @@ def _concat_group(beat_files: list[Path], work: Path, name: str) -> Path:
     return dest
 
 
-def _concat_group_xfade(beat_files: list[Path], work: Path, name: str) -> Path:
+def _concat_group_xfade(beat_files: list[Path], work: Path, name: str, threads: int = 1) -> Path:
     """Concatena un grupo que se va a unir con xfade (re-encode, PTS limpios)."""
     if len(beat_files) == 1:
         return beat_files[0]
     dest = work / f"{name}.mp4"
-    _run(build_concat_filter_cmd(beat_files, dest), f"concat-filter {name}")
+    _run(build_concat_filter_cmd(beat_files, dest, threads), f"concat-filter {name}")
     return dest
 
 
@@ -303,6 +305,7 @@ def render_clips(
     modo_transicion: str,
     trans_dur: float,
     music_path: Path | None,
+    threads: int = 1,
 ) -> RenderResult:
     """Renderiza los N clips: beats únicos cacheados, transiciones y música."""
     from app.pipeline.compose import unique_beats
@@ -328,7 +331,8 @@ def render_clips(
                 build_beat_ass(segments_by_video.get(v, []), beat.start, beat.dur),
                 encoding="utf-8",
             )
-        _run(build_beat_cmd(beat.source, beat.start, beat.dur, dest, modo_fondo, ass_path),
+        _run(build_beat_cmd(beat.source, beat.start, beat.dur, dest, modo_fondo,
+                            ass_path, threads),
              f"beat v{v}@{beat.start:.1f}s")
         cache[beat.key()] = dest
     logger.info("Beats únicos renderizados: %d", len(cache))
@@ -358,7 +362,7 @@ def render_clips(
         seg_files, seg_durs = [], []
         for gi, group in enumerate(groups):
             files = [cache[b.key()] for b in group]
-            seg_files.append(_concat_group_xfade(files, tmp_dir, f"c{ci}_g{gi}"))
+            seg_files.append(_concat_group_xfade(files, tmp_dir, f"c{ci}_g{gi}", threads))
             seg_durs.append(sum(b.dur for b in group))
 
         # Unir los grupos: con xfade si hay transiciones, si no concat directo.
@@ -366,7 +370,7 @@ def render_clips(
         if len(seg_files) == 1:
             clip_video = seg_files[0]
         elif types:
-            _run(build_xfade_cmd(seg_files, seg_durs, types, trans_dur, clip_video),
+            _run(build_xfade_cmd(seg_files, seg_durs, types, trans_dur, clip_video, threads),
                  f"xfade clip {ci}")
         else:
             clip_video = _concat_group(

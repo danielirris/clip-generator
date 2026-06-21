@@ -222,6 +222,13 @@ Con pocos videos o poco material, las combinaciones comparten fragmentos. Sube
 **más videos y más variados** para que los clips sean más distintos. El aviso
 del job indica si el pool quedó por debajo de `MIN_FRAGMENTOS`.
 
+**Error 502 / el contenedor se reinicia al procesar.**
+Es falta de recursos (CPU/RAM) en el VPS, no un fallo de la app. Soluciones:
+sube el **límite de memoria** del servicio a ~2 GB en EasyPanel y mantén
+`FFMPEG_THREADS=1` (limita el pico de CPU/RAM). El estado de los trabajos se
+guarda en `storage/jobs.db`, así que si el contenedor se reinicia, los trabajos
+en curso **se reanudan solos** y los ya terminados siguen descargables.
+
 **Disco lleno.**
 Baja `RETENCION_HORAS`, reduce `MAX_UPLOAD_MB` o amplía el volumen. Recuerda
 montar `/app/storage` como volumen persistente.

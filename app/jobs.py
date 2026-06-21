@@ -9,6 +9,7 @@ Celery.
 """
 from __future__ import annotations
 
+import json
 import logging
 import queue
 import random
@@ -26,6 +27,7 @@ from app.pipeline import audio, transcribe, analyze, render, cleanup
 from app.pipeline.compose import compose_clips
 from app.pipeline.fragments import VideoSource, build_pool
 from app.pipeline.remotion_export import export_remotion
+from app.store import JobStore
 
 logger = logging.getLogger(__name__)
 
@@ -96,15 +98,44 @@ class JobManager:
         self._queue: "queue.Queue[str]" = queue.Queue()
         self._worker = threading.Thread(target=self._run_worker, daemon=True)
         self._started = False
+        self._store = JobStore(self._settings.storage_dir / "jobs.db")
 
     # --- ciclo de vida ---
     def start(self) -> None:
-        """Arranca el hilo trabajador (idempotente)."""
+        """Arranca el hilo trabajador (idempotente) y reanuda trabajos pendientes."""
         if not self._started:
             self._settings.ensure_dirs()
+            self._recover()
             self._worker.start()
             self._started = True
             logger.info("JobManager iniciado.")
+
+    def _recover(self) -> None:
+        """Reanuda trabajos que quedaron a medias tras un reinicio del contenedor."""
+        for row in self._store.incomplete():
+            try:
+                sources = [Path(p) for p in json.loads(row["sources"])]
+                music = Path(row["music"]) if row["music"] else None
+                if not sources or not all(p.exists() for p in sources):
+                    self._store.update(row["id"], {
+                        "status": JobStatus.ERROR.value, "progress": 100,
+                        "error": "Interrumpido por un reinicio; vuelve a subir los videos.",
+                    })
+                    continue
+                job = Job(id=row["id"], filenames=json.loads(row["filenames"]),
+                          created_at=row["created_at"], status=JobStatus.QUEUED,
+                          message="Reanudado tras reinicio")
+                with self._lock:
+                    self._jobs[job.id] = job
+                    self._sources[job.id] = sources
+                    if music:
+                        self._music[job.id] = music
+                self._store.update(row["id"], {"status": "queued", "progress": 0,
+                                               "message": "Reanudado tras reinicio"})
+                self._queue.put(job.id)
+                logger.info("Job %s reanudado tras reinicio", job.id)
+            except Exception:  # noqa: BLE001
+                logger.exception("No se pudo recuperar el job %s", row["id"])
 
     # --- API pública ---
     def submit(
@@ -148,15 +179,29 @@ class JobManager:
             self._sources[job_id] = paths
             if music_path is not None:
                 self._music[job_id] = music_path
+        self._store.save(id=job_id, filenames=filenames, status=JobStatus.QUEUED.value,
+                         created_at=job.created_at, sources=paths, music=music_path)
         self._queue.put(job_id)
         logger.info("Job %s encolado (%d videos, música=%s)",
                     job_id, len(paths), music_path is not None)
         return job_id
 
     def get(self, job_id: str) -> Job | None:
-        """Devuelve el job por id, o None si no existe."""
+        """Devuelve el job por id (de memoria, o reconstruido desde SQLite)."""
         with self._lock:
-            return self._jobs.get(job_id)
+            job = self._jobs.get(job_id)
+        if job is not None:
+            return job
+        row = self._store.get_one(job_id)  # p.ej. job ya hecho antes de un reinicio
+        if row is None:
+            return None
+        return Job(
+            id=row["id"], filenames=json.loads(row["filenames"]),
+            status=JobStatus(row["status"]), progress=row["progress"],
+            message=row["message"], error=row["error"], aviso=row["aviso"],
+            n_clips=row["n_clips"], created_at=row["created_at"],
+            output_dir=row["output_dir"],
+        )
 
     def clip_path(self, job_id: str, n: int) -> Path | None:
         """Ruta del clip ``n`` (1-indexado) si el job está terminado."""
@@ -176,6 +221,16 @@ class JobManager:
                 setattr(job, key, value)
             if "status" in kwargs:
                 job.progress = _PROGRESS.get(job.status, job.progress)
+            progress = job.progress
+        # Replica en SQLite (fuera del lock).
+        fields: dict[str, Any] = {}
+        for key, value in kwargs.items():
+            if key == "status":
+                fields["status"] = value.value if isinstance(value, JobStatus) else value
+                fields["progress"] = progress
+            elif key in ("message", "error", "aviso", "n_clips", "output_dir"):
+                fields[key] = value
+        self._store.update(job_id, fields)
 
     def _run_worker(self) -> None:
         """Bucle del trabajador: procesa jobs de la cola de a uno."""
@@ -270,6 +325,7 @@ class JobManager:
                 modo_transicion=settings.modo_transicion,
                 trans_dur=settings.trans_dur_s,
                 music_path=music_path,
+                threads=settings.ffmpeg_threads,
             )
 
             # 5) Exportar proyecto Remotion editable.
