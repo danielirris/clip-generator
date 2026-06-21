@@ -1,58 +1,66 @@
 # 🎬 clip-generator
 
-Aplicación web que toma un **video largo** y genera automáticamente un **clip
-vertical de 48 segundos** (9:16) con los **momentos más impactantes** y
-**subtítulos quemados**.
+Aplicación web que toma un **compendio de videos** y genera automáticamente
+**varios clips verticales de 48 s** (9:16) **mezclando los mejores fragmentos de
+TODOS los videos**, con **subtítulos quemados**.
 
-La IA pesada corre **en la nube** (Groq Whisper para transcribir + Gemini para
-detectar momentos). El servidor solo **orquesta** y ejecuta **FFmpeg**, por lo
-que funciona cómodamente en una VPS pequeña (8 GB RAM / 80 GB disco).
+La IA corre **en la nube** (OpenAI: Whisper para transcribir + GPT para detectar
+los ganchos). El servidor solo **orquesta** y ejecuta **FFmpeg**, así que
+funciona cómodamente en una VPS pequeña (8 GB RAM / 80 GB disco).
 
 ---
 
 ## ¿Qué hace? (flujo)
 
-1. Subes un video (`mp4` / `mov` / `mkv`) desde una web simple.
-2. Se extrae el audio con FFmpeg (mono, 16 kHz → mínimo tamaño/costo).
-3. Se transcribe con **Groq Whisper large v3 turbo** (con timestamps).
-4. **Gemini 2.5 Flash-Lite** analiza la transcripción y devuelve, en JSON, los
-   mejores momentos para un clip.
-5. FFmpeg corta esos momentos en **beats de 2 s**, los normaliza a **1080×1920**
-   y los concatena en un único video de **48 s** con subtítulos.
-6. Ves el progreso (polling) y descargas el resultado. Los temporales se borran.
+1. Subes **varios videos** (`mp4` / `mov` / `mkv`) desde una web simple.
+2. De cada video se extrae el audio (mono, 16 kHz) y se transcribe con
+   **OpenAI Whisper** (con timestamps).
+3. **GPT-4o-mini** analiza las transcripciones y detecta los mejores **ganchos**
+   de apertura (frases que enganchan).
+4. Se trocean **todos** los videos en fragmentos de 2 s → un **pool** grande.
+5. Se componen **N clips** (5 por defecto). Cada clip = `[ganchos al inicio]` +
+   `[cuerpo con fragmentos variados de todos los videos]`. Cada clip es una
+   **combinación distinta**.
+6. FFmpeg normaliza cada fragmento a **1080×1920** (una sola vez, con caché) y
+   concatena cada clip con `-c copy`. Ves el progreso y descargas los clips
+   (uno a uno o todos en un `.zip`). Los temporales se borran.
 
 ```
-[ Video ] → [ Audio 16kHz ] → [ Groq Whisper ] → [ Gemini ] → [ FFmpeg 9:16 + subs ] → [ Clip 48s ]
+[ N videos ] → [ Audio + Whisper ] → [ GPT: ganchos ] → [ Pool de fragmentos ]
+            → [ Componer 5 combinaciones ] → [ FFmpeg 9:16 + subs ] → [ 5 clips de 48s ]
 ```
 
-### Especificación del clip de salida
-- Duración: **48 s** = **24 beats × 2 s** (configurable).
+### Concepto clave
+- Los **momentos impactantes** (ganchos) solo van al **inicio** de cada clip
+  (los primeros `HOOK_BEATS` fragmentos). El **resto se rellena sin filtro
+  estricto**, con fragmentos variados de todos los videos.
+- Cada clip **mezcla todos los videos** (el pool se intercala en ronda).
+- Los **N clips son combinaciones diferentes** del mismo pool.
+
+### Especificación de cada clip
+- Duración: **48 s** = **24 fragmentos × 2 s** (configurable).
 - Vertical **9:16**, **1080×1920**, **H.264**, **30 fps**, **AAC**.
 - Fondo configurable (`MODO_FONDO`): `blur` (fondo difuminado + video centrado),
   `crop` (recorte centrado) o `pad_negro` (barras negras).
-- Subtítulos quemados, sincronizados, grandes y con contorno (`SUBTITULOS`).
-- Si no hay material para 48 s, genera el clip más largo posible (múltiplo de
-  2 s) y lo avisa en la respuesta.
+- Subtítulos quemados, sincronizados por video, grandes y con contorno
+  (`SUBTITULOS`).
 
 ---
 
 ## Requisitos
 
-- **Para Docker (recomendado):** solo Docker. FFmpeg va dentro de la imagen.
-- **Para correr local:** Python 3.11+ y **FFmpeg con libass** instalado
-  (la mayoría de paquetes de Linux lo incluyen; en macOS, ver troubleshooting).
-- Claves de API de **Groq** y **Gemini**.
+- **Para Docker (recomendado):** solo Docker. FFmpeg (con libass) va dentro de
+  la imagen.
+- **Para correr local:** Python 3.11+ y **FFmpeg con libass** (para subtítulos).
+- Una clave de API de **OpenAI**.
 
 ---
 
-## Conseguir las API keys
+## Conseguir la API key
 
 | Servicio | Dónde | Variable |
 |----------|-------|----------|
-| Groq     | https://console.groq.com/keys | `GROQ_API_KEY` |
-| Gemini   | https://aistudio.google.com/app/apikey | `GEMINI_API_KEY` |
-
-Ambas tienen plan gratuito suficiente para probar.
+| OpenAI   | https://platform.openai.com/api-keys | `OPENAI_API_KEY` |
 
 ---
 
@@ -60,14 +68,14 @@ Ambas tienen plan gratuito suficiente para probar.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
-cp .env.example .env   # y rellena GROQ_API_KEY y GEMINI_API_KEY
+cp .env.example .env   # y rellena OPENAI_API_KEY
 uvicorn app.main:app --reload --port 8000
 ```
 
-Abre <http://localhost:8000>.
+Abre <http://localhost:8000>, arrastra varios videos y genera los clips.
 
-> En macOS, el FFmpeg de Homebrew puede venir **sin libass** (sin subtítulos).
-> Ver [Troubleshooting](#troubleshooting).
+> En macOS, algunos builds de FFmpeg de Homebrew vienen **sin libass** (sin
+> subtítulos). Ver [Troubleshooting](#troubleshooting).
 
 ### Tests
 
@@ -76,9 +84,10 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-Los tests **mockean las APIs externas**: cubren el parseo del JSON de Gemini,
-el cálculo de beats de 2 s y la construcción de comandos FFmpeg (no ejecutan
-Groq/Gemini ni FFmpeg).
+Los tests **mockean las APIs externas** (no llaman a OpenAI ni ejecutan FFmpeg):
+parseo del JSON de ganchos, pool de fragmentos, composición de los clips
+(mezcla de videos, ganchos al inicio, combinaciones distintas) y construcción de
+comandos FFmpeg.
 
 ---
 
@@ -87,8 +96,7 @@ Groq/Gemini ni FFmpeg).
 ```bash
 docker build -t clip-generator .
 docker run --rm -p 8000:8000 \
-  -e GROQ_API_KEY=tu_clave_groq \
-  -e GEMINI_API_KEY=tu_clave_gemini \
+  -e OPENAI_API_KEY=tu_clave \
   -v "$(pwd)/storage:/app/storage" \
   clip-generator
 ```
@@ -99,34 +107,34 @@ docker run --rm -p 8000:8000 \
 
 1. **Sube el código a GitHub** (ver más abajo).
 2. En EasyPanel, crea un **proyecto** y dentro un servicio **App**.
-3. **Source → GitHub:** elige tu repositorio `clip-generator` y la rama `main`.
+3. **Source → GitHub:** elige tu repositorio y la rama `main`.
 4. **Build:** método **Dockerfile** (EasyPanel detecta el `Dockerfile` de la raíz).
-5. **Environment:** añade las variables (mínimo `GROQ_API_KEY` y `GEMINI_API_KEY`;
-   el resto tienen valores por defecto). Ver tabla abajo.
+5. **Environment:** añade `OPENAI_API_KEY` (el resto tienen valores por defecto).
 6. **Volumen persistente (importante):** monta un volumen en **`/app/storage`**
-   para que los outputs no se pierdan al reiniciar el contenedor y para no
-   llenar la capa de la imagen.
-7. **Puerto / Dominio:** expón el puerto **8000** y asígnale un dominio. EasyPanel
-   gestiona el HTTPS.
+   para que los clips no se pierdan al reiniciar y para no llenar la imagen.
+7. **Puerto / Dominio:** expón el puerto **8000** y asígnale un dominio (EasyPanel
+   gestiona el HTTPS).
 8. **Healthcheck:** ya viene en el Dockerfile apuntando a `/healthz`.
-9. **Deploy.** Cuando termine, entra al dominio y sube un video de prueba.
+9. **Deploy** y prueba subiendo varios videos.
 
-> Recursos sugeridos en EasyPanel: 1 vCPU y ~1.5–2 GB de RAM por contenedor son
-> suficientes (el cuello de botella es FFmpeg, single-thread por job).
+> Recursos sugeridos: 1 vCPU y ~1.5–2 GB de RAM por contenedor. El cuello de
+> botella es FFmpeg (un job a la vez).
 
 ### Variables de entorno
 
 | Variable | Default | Descripción |
 |----------|---------|-------------|
-| `GROQ_API_KEY` | — | **Obligatoria.** Clave de Groq. |
-| `GEMINI_API_KEY` | — | **Obligatoria.** Clave de Gemini. |
-| `GROQ_WHISPER_MODEL` | `whisper-large-v3-turbo` | Modelo de transcripción. |
-| `GEMINI_MODEL` | `gemini-2.5-flash-lite` | Modelo de análisis. |
-| `DURACION_TOTAL_S` | `48` | Duración total objetivo (s). |
-| `DURACION_BEAT_S` | `2` | Duración de cada beat (s). |
+| `OPENAI_API_KEY` | — | **Obligatoria.** Clave de OpenAI. |
+| `OPENAI_TRANSCRIBE_MODEL` | `whisper-1` | Modelo de transcripción. |
+| `OPENAI_ANALYZE_MODEL` | `gpt-4o-mini` | Modelo de análisis de ganchos. |
+| `NUM_CLIPS` | `5` | Cuántos clips generar por compendio (3–5 típico). |
+| `DURACION_TOTAL_S` | `48` | Duración de cada clip (s). |
+| `DURACION_BEAT_S` | `2` | Duración de cada fragmento (s). |
+| `MIN_FRAGMENTOS` | `50` | Tamaño mínimo recomendado del pool (solo aviso). |
+| `HOOK_BEATS` | `2` | Fragmentos "impactantes" al inicio de cada clip. |
 | `MODO_FONDO` | `blur` | `blur` \| `crop` \| `pad_negro`. |
 | `SUBTITULOS` | `true` | Quemar subtítulos (`true`/`false`). |
-| `MAX_UPLOAD_MB` | `2048` | Tamaño máximo de subida (MB). |
+| `MAX_UPLOAD_MB` | `2048` | Tamaño máximo por archivo (MB). |
 | `RETENCION_HORAS` | `24` | Borra outputs más antiguos que N horas. |
 | `PORT` | `8000` | Puerto del servidor. |
 
@@ -137,9 +145,10 @@ docker run --rm -p 8000:8000 \
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | GET  | `/` | Página de subida. |
-| POST | `/api/jobs` | Sube el video (multipart) y crea el job → `{ "job_id": ... }`. |
-| GET  | `/api/jobs/{id}` | Estado del job (`queued`/`extracting`/`transcribing`/`analyzing`/`rendering`/`done`/`error`) + progreso. |
-| GET  | `/api/jobs/{id}/download` | Descarga el `mp4` final. |
+| POST | `/api/jobs` | Sube uno o varios videos (multipart, campo `files`) → `{ "job_id": ... }`. |
+| GET  | `/api/jobs/{id}` | Estado del job + progreso + lista de URLs de clips cuando termina. |
+| GET  | `/api/jobs/{id}/download/{n}` | Descarga el clip `n` (1-indexado). |
+| GET  | `/api/jobs/{id}/download` | Descarga **todos** los clips en un `.zip`. |
 | GET  | `/healthz` | Healthcheck. |
 
 ---
@@ -148,27 +157,27 @@ docker run --rm -p 8000:8000 \
 
 - **Cola secuencial:** un único job a la vez (un hilo trabajador). Si llegan más,
   se encolan. Esto mantiene la RAM bajo control.
-- Cada job trabaja en `storage/jobs/{job_id}/` y al terminar (éxito o error)
-  **borra todos los temporales**, dejando solo `storage/outputs/{job_id}.mp4`.
-- El **video fuente** se borra al acabar el render.
+- **Render con caché:** cada fragmento de 2 s se normaliza **una sola vez** y se
+  reutiliza en los clips que lo usen → 5 clips cuestan casi lo mismo que 1.
+- Cada job trabaja en `storage/jobs/{job_id}/` y al terminar **borra todos los
+  temporales** (audio, fragmentos y videos fuente), dejando solo los clips en
+  `storage/outputs/{job_id}/`.
 - **Purga automática:** se eliminan los outputs con más de `RETENCION_HORAS`.
-- **Límite de subida:** `MAX_UPLOAD_MB` (se valida en streaming, sin cargar todo
-  el archivo en memoria).
+- **Límite de subida:** `MAX_UPLOAD_MB` por archivo (validado en streaming).
 
 ---
 
 ## Costos aproximados
 
-Orientativo, por video de ~10 minutos (varía según proveedor y precios vigentes):
+Orientativo (revisa los precios vigentes de OpenAI):
 
-- **Groq Whisper turbo:** se factura por minuto de audio; ~10 min ≈ **fracciones
-  de centavo**.
-- **Gemini 2.5 Flash-Lite:** transcripción como entrada de texto; un video de
-  ~10 min suele costar **unos pocos centavos o menos**.
+- **Whisper:** se factura por minuto de audio (~US$0.006/min). Un compendio de
+  ~5 min ≈ **un par de centavos**.
+- **GPT-4o-mini:** la transcripción como entrada de texto suele costar
+  **una fracción de centavo**.
 - **FFmpeg / VPS:** solo CPU del servidor; sin coste por API.
 
-> Total típico por video: **del orden de céntimos**. Revisa los precios actuales
-> de cada proveedor, que pueden cambiar.
+> Total típico por compendio: **del orden de centavos**.
 
 ---
 
@@ -178,29 +187,27 @@ Orientativo, por video de ~10 minutos (varía según proveedor y precios vigente
 FFmpeg no está instalado o no está en el `PATH`. En Docker ya viene incluido; en
 local instala FFmpeg (Debian/Ubuntu: `apt install ffmpeg`).
 
-**Los subtítulos no aparecen / error "No such filter: 'ass'".**
+**Los subtítulos no aparecen / error "No such filter: 'ass'" o "No option name".**
 Tu FFmpeg está compilado **sin libass**. Pasa con algunos builds de Homebrew en
 macOS. Soluciones: usa Docker (incluye libass), instala un FFmpeg con libass, o
 desactiva subtítulos con `SUBTITULOS=false`. El FFmpeg de Debian/Ubuntu (el de
 la imagen Docker) **sí** incluye libass.
 
 **Subtítulos con caja en vez de letras (fuente no encontrada).**
-La imagen instala `fonts-dejavu-core` y el estilo usa **DejaVu Sans**. Si cambias
-la fuente, asegúrate de que exista en el contenedor.
+La imagen instala `fonts-dejavu-core` y el estilo usa **DejaVu Sans**.
+
+**Los clips se parecen mucho entre sí.**
+Con pocos videos o poco material, las combinaciones comparten fragmentos. Sube
+**más videos y más variados** para que los clips sean más distintos. El aviso
+del job indica si el pool quedó por debajo de `MIN_FRAGMENTOS`.
 
 **Disco lleno.**
-Baja `RETENCION_HORAS`, reduce `MAX_UPLOAD_MB`, o amplía el volumen. Recuerda
-montar `/app/storage` como volumen persistente; los temporales por job se borran
-solos al terminar.
+Baja `RETENCION_HORAS`, reduce `MAX_UPLOAD_MB` o amplía el volumen. Recuerda
+montar `/app/storage` como volumen persistente.
 
-**Rate limit / errores de red de Groq o Gemini.**
-Las llamadas reintentan con backoff exponencial (3 intentos). Si persiste, es
-límite de tu plan: espera o sube de tier. Gemini además reintenta una vez con un
-prompt más estricto si devuelve un JSON inválido.
-
-**El clip dura menos de 48 s.**
-No había suficiente material "impactante". La app genera el clip más largo
-posible (múltiplo de 2 s) y lo indica en el campo `aviso` del estado del job.
+**Rate limit / errores de red de OpenAI.**
+Las llamadas reintentan con backoff exponencial (3 intentos). El análisis
+reintenta una vez con un prompt más estricto si el JSON es inválido.
 
 ---
 
@@ -214,16 +221,18 @@ clip-generator/
 │   ├── jobs.py              # cola secuencial, estado y orquestación
 │   ├── retry.py             # reintentos con backoff
 │   └── pipeline/
-│       ├── audio.py         # extracción de audio (ffmpeg)
-│       ├── transcribe.py    # Groq Whisper → segmentos
-│       ├── analyze.py       # Gemini → JSON de momentos
-│       ├── render.py        # beats, 9:16, subtítulos y concat
+│       ├── audio.py         # extracción de audio + duración (ffmpeg/ffprobe)
+│       ├── transcribe.py    # OpenAI Whisper → segmentos
+│       ├── analyze.py       # OpenAI GPT → ganchos (JSON)
+│       ├── fragments.py     # pool de fragmentos de todos los videos
+│       ├── compose.py       # composición de N clips (combinaciones)
+│       ├── render.py        # 9:16, subtítulos, render con caché y concat
 │       └── cleanup.py       # borrado de temporales / purga
 ├── web/
 │   ├── templates/index.html
 │   └── static/ (style.css, app.js)
-├── storage/                 # uploads y outputs (en .gitignore)
-├── tests/                   # tests de parseo, beats y comandos ffmpeg
+├── storage/                 # uploads, temporales y outputs (en .gitignore)
+├── tests/                   # tests de parseo, pool, composición y comandos
 ├── Dockerfile
 ├── requirements.txt
 ├── .env.example

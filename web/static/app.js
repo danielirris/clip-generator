@@ -1,4 +1,4 @@
-// Frontend mínimo: subida, barra de progreso por polling y descarga.
+// Frontend mínimo: subida múltiple, barra de progreso por polling y descarga.
 (() => {
   "use strict";
 
@@ -20,17 +20,17 @@
   const progressMsg = $("progress-msg");
   const avisoEl = $("aviso");
 
-  const preview = $("preview");
-  const downloadLink = $("download-link");
+  const clipsGrid = $("clips-grid");
+  const downloadAll = $("download-all");
 
   let pollTimer = null;
 
   const STATUS_TEXT = {
     queued: "En cola…",
     extracting: "Extrayendo audio…",
-    transcribing: "Transcribiendo (Groq)…",
-    analyzing: "Analizando momentos (Gemini)…",
-    rendering: "Renderizando clip vertical…",
+    transcribing: "Transcribiendo (OpenAI)…",
+    analyzing: "Detectando ganchos…",
+    rendering: "Renderizando los clips…",
     done: "¡Listo!",
     error: "Error",
   };
@@ -42,24 +42,15 @@
     card.classList.remove("hidden");
   }
 
-  function pickFile(file) {
-    if (!file) return;
-    fileInput.files = createFileList(file);
-    filenameEl.textContent = file.name;
-    submitBtn.disabled = false;
-  }
-
-  // Helper para asignar un File arrastrado al input.
-  function createFileList(file) {
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    return dt.files;
+  function describeSelection(files) {
+    if (!files || !files.length) return "";
+    if (files.length === 1) return files[0].name;
+    return `${files.length} videos seleccionados`;
   }
 
   fileInput.addEventListener("change", () => {
-    const f = fileInput.files[0];
-    filenameEl.textContent = f ? f.name : "";
-    submitBtn.disabled = !f;
+    filenameEl.textContent = describeSelection(fileInput.files);
+    submitBtn.disabled = !fileInput.files.length;
   });
 
   ["dragover", "dragenter"].forEach((ev) =>
@@ -75,20 +66,23 @@
     })
   );
   dropzone.addEventListener("drop", (e) => {
-    const f = e.dataTransfer.files[0];
-    if (f) pickFile(f);
+    if (e.dataTransfer.files.length) {
+      fileInput.files = e.dataTransfer.files;
+      filenameEl.textContent = describeSelection(fileInput.files);
+      submitBtn.disabled = false;
+    }
   });
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const file = fileInput.files[0];
-    if (!file) return;
+    const files = fileInput.files;
+    if (!files.length) return;
 
     const data = new FormData();
-    data.append("file", file);
+    for (const f of files) data.append("files", f);
 
     show(progressCard);
-    setProgress("queued", 2, "Subiendo video…");
+    setProgress("queued", 2, "Subiendo videos…");
 
     try {
       const res = await fetch("/api/jobs", { method: "POST", body: data });
@@ -120,7 +114,7 @@
 
         if (job.status === "done") {
           clearInterval(pollTimer);
-          finish(jobId, job.aviso);
+          finish(jobId, job);
         } else if (job.status === "error") {
           clearInterval(pollTimer);
           showError(job.error || "Error en el procesamiento");
@@ -132,12 +126,26 @@
     }, 2000);
   }
 
-  function finish(jobId, aviso) {
-    const url = `/api/jobs/${jobId}/download`;
-    preview.src = url;
-    downloadLink.href = url;
-    if (aviso) {
-      avisoEl.textContent = aviso;
+  function finish(jobId, job) {
+    clipsGrid.innerHTML = "";
+    (job.clips || []).forEach((url, i) => {
+      const cell = document.createElement("div");
+      cell.className = "clip-cell";
+      const v = document.createElement("video");
+      v.src = url;
+      v.controls = true;
+      v.playsInline = true;
+      const a = document.createElement("a");
+      a.href = url;
+      a.className = "clip-dl";
+      a.textContent = `⬇️ Clip ${i + 1}`;
+      cell.append(v, a);
+      clipsGrid.append(cell);
+    });
+    $("result-title").textContent = `✅ ${job.clips.length} clips listos`;
+    downloadAll.href = `/api/jobs/${jobId}/download`;
+    if (job.aviso) {
+      avisoEl.textContent = job.aviso;
       avisoEl.classList.remove("hidden");
     }
     show(resultCard);
@@ -157,7 +165,7 @@
     filenameEl.textContent = "";
     submitBtn.disabled = true;
     avisoEl.classList.add("hidden");
-    preview.removeAttribute("src");
+    clipsGrid.innerHTML = "";
     show(uploadCard);
   }
 })();

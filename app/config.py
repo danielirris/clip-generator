@@ -20,18 +20,20 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # --- Claves de API ---
-    groq_api_key: str = ""
-    gemini_api_key: str = ""
+    # --- Clave de API (OpenAI cubre transcripción y análisis) ---
+    openai_api_key: str = ""
 
     # --- Modelos ---
-    groq_whisper_model: str = "whisper-large-v3-turbo"
-    gemini_model: str = "gemini-2.5-flash-lite"
+    openai_transcribe_model: str = "whisper-1"
+    openai_analyze_model: str = "gpt-4o-mini"
 
-    # --- Especificación del clip ---
+    # --- Especificación de los clips ---
+    num_clips: int = 5            # cuántos clips generar por compendio (3-5 típico)
     duracion_total_s: int = 48
     duracion_beat_s: int = 2
-    modo_fondo: str = "blur"  # blur | crop | pad_negro
+    min_fragmentos: int = 50      # tamaño mínimo del pool de fragmentos
+    hook_beats: int = 2           # beats "impactantes" al inicio de cada clip
+    modo_fondo: str = "blur"      # blur | crop | pad_negro
     subtitulos: bool = True
 
     # --- Límites / recursos ---
@@ -53,12 +55,12 @@ class Settings(BaseSettings):
 
     @property
     def outputs_dir(self) -> Path:
-        """Carpeta de resultados finales (mp4 por job)."""
+        """Carpeta de resultados finales (un subdirectorio por job)."""
         return self.storage_dir / "outputs"
 
     @property
     def total_beats(self) -> int:
-        """Número de beats objetivo (p.ej. 48 / 2 = 24)."""
+        """Número de beats por clip (p.ej. 48 / 2 = 24)."""
         return max(1, self.duracion_total_s // self.duracion_beat_s)
 
     def ensure_dirs(self) -> None:

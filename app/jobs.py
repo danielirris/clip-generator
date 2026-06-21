@@ -1,5 +1,8 @@
 """Cola secuencial de jobs, estado en memoria y orquestación del pipeline.
 
+Un job procesa un COMPENDIO de videos y produce N clips verticales, cada uno
+mezclando fragmentos de TODOS los videos (ganchos al inicio + cuerpo variado).
+
 Diseñado para bajo uso de RAM: un único hilo trabajador procesa los jobs de a
 UNO. El estado vive en un dict en memoria protegido por un lock. Sin Redis ni
 Celery.
@@ -19,6 +22,8 @@ from typing import Any
 
 from app.config import Settings, get_settings
 from app.pipeline import audio, transcribe, analyze, render, cleanup
+from app.pipeline.compose import compose_clips
+from app.pipeline.fragments import VideoSource, build_pool
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +45,8 @@ _PROGRESS = {
     JobStatus.QUEUED: 0,
     JobStatus.EXTRACTING: 10,
     JobStatus.TRANSCRIBING: 35,
-    JobStatus.ANALYZING: 60,
-    JobStatus.RENDERING: 75,
+    JobStatus.ANALYZING: 55,
+    JobStatus.RENDERING: 70,
     JobStatus.DONE: 100,
     JobStatus.ERROR: 100,
 }
@@ -49,24 +54,31 @@ _PROGRESS = {
 
 @dataclass
 class Job:
-    """Estado de un job de procesamiento."""
+    """Estado de un job (un compendio de videos -> N clips)."""
 
     id: str
-    filename: str
+    filenames: list[str]
     status: JobStatus = JobStatus.QUEUED
     progress: int = 0
     message: str = "En cola"
     error: str = ""
     aviso: str = ""
+    n_clips: int = 0
     created_at: float = field(default_factory=time.time)
-    output_path: str | None = None
+    output_dir: str | None = None
 
     def public_dict(self) -> dict[str, Any]:
         """Representación serializable para la API (sin rutas internas)."""
         d = asdict(self)
         d["status"] = self.status.value
+        d["n_videos"] = len(self.filenames)
         d["download_ready"] = self.status == JobStatus.DONE
-        d.pop("output_path", None)
+        # URLs de descarga de cada clip.
+        d["clips"] = (
+            [f"/api/jobs/{self.id}/download/{i}" for i in range(1, self.n_clips + 1)]
+            if self.status == JobStatus.DONE else []
+        )
+        d.pop("output_dir", None)
         return d
 
 
@@ -76,7 +88,7 @@ class JobManager:
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
         self._jobs: dict[str, Job] = {}
-        self._sources: dict[str, Path] = {}
+        self._sources: dict[str, list[Path]] = {}
         self._lock = threading.Lock()
         self._queue: "queue.Queue[str]" = queue.Queue()
         self._worker = threading.Thread(target=self._run_worker, daemon=True)
@@ -92,29 +104,35 @@ class JobManager:
             logger.info("JobManager iniciado.")
 
     # --- API pública ---
-    def submit(self, source_tmp: Path, filename: str) -> str:
-        """Registra un nuevo job, mueve el upload a su carpeta y lo encola.
+    def submit(self, source_tmps: list[tuple[Path, str]]) -> str:
+        """Registra un nuevo job, mueve los uploads a su carpeta y lo encola.
 
         Args:
-            source_tmp: ruta temporal del video ya guardado en disco.
-            filename: nombre original del archivo.
+            source_tmps: lista de (ruta_temporal, nombre_original) de los videos.
 
         Returns:
             El ``job_id`` generado.
         """
         job_id = uuid.uuid4().hex[:12]
         work_dir = self._settings.jobs_dir / job_id
-        work_dir.mkdir(parents=True, exist_ok=True)
-        ext = Path(filename).suffix.lower() or ".mp4"
-        source_path = work_dir / f"source{ext}"
-        shutil.move(str(source_tmp), str(source_path))
+        sources_dir = work_dir / "sources"
+        sources_dir.mkdir(parents=True, exist_ok=True)
 
-        job = Job(id=job_id, filename=filename)
+        paths: list[Path] = []
+        filenames: list[str] = []
+        for i, (tmp, name) in enumerate(source_tmps):
+            ext = Path(name).suffix.lower() or ".mp4"
+            dest = sources_dir / f"src_{i:03d}{ext}"
+            shutil.move(str(tmp), str(dest))
+            paths.append(dest)
+            filenames.append(name)
+
+        job = Job(id=job_id, filenames=filenames)
         with self._lock:
             self._jobs[job_id] = job
-            self._sources[job_id] = source_path
+            self._sources[job_id] = paths
         self._queue.put(job_id)
-        logger.info("Job %s encolado (%s)", job_id, filename)
+        logger.info("Job %s encolado (%d videos)", job_id, len(paths))
         return job_id
 
     def get(self, job_id: str) -> Job | None:
@@ -122,11 +140,11 @@ class JobManager:
         with self._lock:
             return self._jobs.get(job_id)
 
-    def output_for(self, job_id: str) -> Path | None:
-        """Ruta del mp4 final si el job está terminado, o None."""
+    def clip_path(self, job_id: str, n: int) -> Path | None:
+        """Ruta del clip ``n`` (1-indexado) si el job está terminado."""
         job = self.get(job_id)
-        if job and job.status == JobStatus.DONE and job.output_path:
-            p = Path(job.output_path)
+        if job and job.status == JobStatus.DONE and job.output_dir:
+            p = Path(job.output_dir) / f"clip_{n}.mp4"
             return p if p.exists() else None
         return None
 
@@ -143,7 +161,6 @@ class JobManager:
 
     def _run_worker(self) -> None:
         """Bucle del trabajador: procesa jobs de la cola de a uno."""
-        # Purga inicial de outputs antiguos.
         cleanup.purge_old_outputs(
             self._settings.outputs_dir, self._settings.retencion_horas
         )
@@ -154,87 +171,101 @@ class JobManager:
             except Exception as exc:  # noqa: BLE001 - el job no debe tumbar el hilo
                 logger.exception("Error inesperado procesando job %s", job_id)
                 self._update(
-                    job_id,
-                    status=JobStatus.ERROR,
-                    message="Error inesperado",
-                    error=str(exc),
+                    job_id, status=JobStatus.ERROR,
+                    message="Error inesperado", error=str(exc),
                 )
             finally:
                 self._queue.task_done()
 
     def _process(self, job_id: str) -> None:
-        """Ejecuta el pipeline completo para un job."""
+        """Ejecuta el pipeline completo para un job (compendio -> N clips)."""
         settings = self._settings
-        source = self._sources.get(job_id)
-        if source is None:
-            self._update(job_id, status=JobStatus.ERROR, error="Fuente no encontrada")
+        sources = self._sources.get(job_id, [])
+        if not sources:
+            self._update(job_id, status=JobStatus.ERROR, error="Sin videos en el job")
             return
 
         work_dir = settings.jobs_dir / job_id
-        work_dir.mkdir(parents=True, exist_ok=True)
-        output_path = settings.outputs_dir / f"{job_id}.mp4"
+        output_dir = settings.outputs_dir / job_id
 
         try:
-            # 1) Extraer audio
-            self._update(job_id, status=JobStatus.EXTRACTING, message="Extrayendo audio")
-            audio_path = work_dir / "audio.wav"
-            audio.extract_audio(source, audio_path)
-            # Nota: el video fuente NO se borra todavía porque el render necesita
-            # sus fotogramas para cortar los beats. Se elimina al final (finally).
+            # 1) Extraer audio + medir duración + 2) transcribir, por video.
+            videos: list[VideoSource] = []
+            segments_by_video: dict[int, list] = {}
+            for vid, src in enumerate(sources):
+                self._update(
+                    job_id, status=JobStatus.EXTRACTING,
+                    message=f"Procesando audio {vid + 1}/{len(sources)}",
+                )
+                duration = audio.probe_duration(src)
+                audio_path = work_dir / f"audio_{vid:03d}.wav"
+                audio.extract_audio(src, audio_path)
 
-            # 2) Transcribir
-            self._update(
-                job_id, status=JobStatus.TRANSCRIBING, message="Transcribiendo (Groq)"
-            )
-            segments = transcribe.transcribe_audio(audio_path)
+                self._update(
+                    job_id, status=JobStatus.TRANSCRIBING,
+                    message=f"Transcribiendo {vid + 1}/{len(sources)}",
+                )
+                segs = transcribe.transcribe_audio(audio_path)
+                audio_path.unlink(missing_ok=True)  # ya no se necesita
 
-            # 3) Analizar momentos impactantes
-            self._update(
-                job_id, status=JobStatus.ANALYZING, message="Analizando (Gemini)"
-            )
-            clips = analyze.analyze_segments(segments)
+                videos.append(VideoSource(id=vid, path=src, duration=duration, segments=segs))
+                segments_by_video[vid] = segs
 
-            # 4) Render final
-            self._update(
-                job_id, status=JobStatus.RENDERING, message="Renderizando clip vertical"
-            )
-            result = render.render_clip(
-                source=source,
-                segments=segments,
-                clips=clips,
-                work_dir=work_dir,
-                output_path=output_path,
+            # 3) Analizar ganchos (impactantes) sobre todos los videos.
+            self._update(job_id, status=JobStatus.ANALYZING, message="Detectando ganchos")
+            moments = analyze.analyze_hooks([v.segments for v in videos])
+
+            # Construir pool y componer N clips.
+            pool = build_pool(videos, settings.duracion_beat_s)
+            n_clips = max(1, settings.num_clips)
+            clips = compose_clips(
+                pool, moments, videos,
+                num_clips=n_clips,
                 total_beats=settings.total_beats,
+                hook_beats=settings.hook_beats,
+                beat_s=settings.duracion_beat_s,
+            )
+
+            # 4) Render de los N clips (beats únicos cacheados).
+            self._update(
+                job_id, status=JobStatus.RENDERING,
+                message=f"Renderizando {n_clips} clips",
+            )
+            result = render.render_clips(
+                clips, segments_by_video, work_dir, output_dir,
                 beat_s=settings.duracion_beat_s,
                 modo_fondo=settings.modo_fondo,
                 subtitulos=settings.subtitulos,
             )
 
+            aviso = ""
+            if len(pool) < settings.min_fragmentos:
+                aviso = (
+                    f"Pool de {len(pool)} fragmentos (< {settings.min_fragmentos} "
+                    f"recomendado): los clips reutilizan más material."
+                )
+
             self._update(
-                job_id,
-                status=JobStatus.DONE,
-                message="Completado",
-                aviso=result.aviso,
-                output_path=str(output_path),
+                job_id, status=JobStatus.DONE, message="Completado",
+                n_clips=len(result.clips), aviso=aviso, output_dir=str(output_dir),
             )
-            logger.info("Job %s completado (%.0fs)", job_id, result.duracion_real_s)
+            logger.info(
+                "Job %s completado: %d clips, %d beats únicos",
+                job_id, len(result.clips), result.beats_unicos,
+            )
 
         except Exception as exc:  # noqa: BLE001
             logger.exception("Fallo en el pipeline del job %s", job_id)
             self._update(
-                job_id,
-                status=JobStatus.ERROR,
-                message="Error en el procesamiento",
-                error=str(exc),
+                job_id, status=JobStatus.ERROR,
+                message="Error en el procesamiento", error=str(exc),
             )
         finally:
-            # Limpieza de temporales (mantiene solo el output final).
+            # Limpieza: borra temporales y videos fuente (deja solo los clips).
             cleanup.cleanup_job_dir(work_dir)
-            cleanup.delete_source(source)
-            self._sources.pop(job_id, None)
-            cleanup.purge_old_outputs(
-                settings.outputs_dir, settings.retencion_horas
-            )
+            with self._lock:
+                self._sources.pop(job_id, None)
+            cleanup.purge_old_outputs(settings.outputs_dir, settings.retencion_horas)
 
 
 # Instancia global única.

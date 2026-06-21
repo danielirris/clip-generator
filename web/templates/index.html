@@ -11,8 +11,8 @@
     <header>
       <h1>🎬 Clip Generator</h1>
       <p class="subtitle">
-        Sube un video largo y genera un clip vertical de
-        {{ duracion_total_s }}s con los momentos más impactantes y subtítulos.
+        Sube un compendio de videos y genera {{ num_clips }} clips verticales de
+        48s, mezclando los mejores fragmentos de todos, con subtítulos.
       </p>
     </header>
 
@@ -20,12 +20,12 @@
       <form id="upload-form">
         <label for="file" class="dropzone" id="dropzone">
           <span class="dz-icon">⬆️</span>
-          <span class="dz-text">Arrastra tu video aquí o haz clic para elegir</span>
-          <span class="dz-hint">mp4, mov o mkv · máx {{ max_upload_mb }} MB</span>
-          <input type="file" id="file" name="file" accept=".mp4,.mov,.mkv" hidden>
+          <span class="dz-text">Arrastra tus videos aquí o haz clic para elegir</span>
+          <span class="dz-hint">varios mp4, mov o mkv · máx {{ max_upload_mb }} MB c/u</span>
+          <input type="file" id="file" name="file" accept=".mp4,.mov,.mkv" multiple hidden>
         </label>
         <p id="filename" class="filename"></p>
-        <button type="submit" id="submit-btn" disabled>Generar clip</button>
+        <button type="submit" id="submit-btn" disabled>Generar clips</button>
       </form>
     </section>
 
@@ -37,10 +37,10 @@
     </section>
 
     <section id="result-card" class="card hidden">
-      <h2>✅ ¡Tu clip está listo!</h2>
-      <video id="preview" class="preview" controls playsinline></video>
-      <a id="download-link" class="download-btn" href="#" download>⬇️ Descargar clip</a>
-      <button id="new-btn" class="secondary">Generar otro</button>
+      <h2 id="result-title">✅ ¡Tus clips están listos!</h2>
+      <div id="clips-grid" class="clips-grid"></div>
+      <a id="download-all" class="download-btn" href="#">⬇️ Descargar todos (.zip)</a>
+      <button id="new-btn" class="secondary">Generar otros</button>
     </section>
 
     <section id="error-card" class="card hidden">

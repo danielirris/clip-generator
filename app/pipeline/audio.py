@@ -30,6 +30,30 @@ def build_extract_audio_cmd(source: Path, dest: Path) -> list[str]:
     ]
 
 
+def probe_duration(source: Path) -> float:
+    """Devuelve la duración del video en segundos usando ffprobe.
+
+    Args:
+        source: archivo de video.
+
+    Returns:
+        Duración en segundos (0.0 si no se puede determinar).
+    """
+    proc = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(source),
+        ],
+        capture_output=True, text=True,
+    )
+    try:
+        return float(proc.stdout.strip())
+    except (ValueError, AttributeError):
+        return 0.0
+
+
 def extract_audio(source: Path, dest: Path) -> Path:
     """Extrae el audio de ``source`` a ``dest`` usando FFmpeg.
 

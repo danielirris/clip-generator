@@ -46,10 +46,14 @@ def purge_old_outputs(outputs_dir: Path, retencion_horas: int) -> int:
     borrados = 0
     for item in outputs_dir.iterdir():
         try:
-            if item.is_file() and item.stat().st_mtime < limite:
+            if item.stat().st_mtime >= limite:
+                continue
+            if item.is_dir():
+                shutil.rmtree(item, ignore_errors=True)
+            else:
                 item.unlink()
-                borrados += 1
-                logger.info("Output antiguo borrado: %s", item.name)
+            borrados += 1
+            logger.info("Output antiguo borrado: %s", item.name)
         except OSError as exc:  # pragma: no cover - mejor esfuerzo
             logger.warning("No se pudo borrar %s: %s", item, exc)
     return borrados

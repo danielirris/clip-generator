@@ -102,15 +102,29 @@ button.secondary {
 .progress-msg { color: var(--muted); text-align: center; margin: 0; }
 .aviso { color: #ffcc66; text-align: center; font-size: .9rem; }
 
-.preview {
+.clips-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.clip-cell { display: flex; flex-direction: column; gap: 6px; }
+.clip-cell video {
   width: 100%;
-  max-width: 270px;
-  display: block;
-  margin: 0 auto 8px;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #000;
   aspect-ratio: 9 / 16;
 }
+.clip-dl {
+  text-align: center;
+  font-size: .85rem;
+  color: var(--accent-2);
+  text-decoration: none;
+  padding: 4px;
+  border: 1px solid #39404d;
+  border-radius: 8px;
+}
+.clip-dl:hover { border-color: var(--accent); }
 
 .error-msg { color: var(--err); text-align: center; word-break: break-word; }
 

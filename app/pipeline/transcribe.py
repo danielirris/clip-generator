@@ -1,4 +1,4 @@
-"""Transcripción con Groq Whisper (large v3 turbo) -> segmentos con timestamps."""
+"""Transcripción con OpenAI Whisper -> segmentos con timestamps."""
 from __future__ import annotations
 
 import logging
@@ -25,10 +25,10 @@ class Segment:
 
 
 def parse_segments(raw: Any) -> list[Segment]:
-    """Normaliza la respuesta de Groq (verbose_json) a una lista de ``Segment``.
+    """Normaliza la respuesta de OpenAI (verbose_json) a una lista de ``Segment``.
 
-    Acepta tanto objetos del SDK (con atributos) como diccionarios, de modo que
-    sea fácil de testear con datos simulados.
+    Acepta objetos del SDK (con atributos) o diccionarios, para poder testear
+    con datos simulados.
 
     Args:
         raw: respuesta de la API (objeto o dict) con clave/atributo ``segments``.
@@ -59,38 +59,37 @@ def parse_segments(raw: Any) -> list[Segment]:
 
 
 def transcribe_audio(audio_path: Path) -> list[Segment]:
-    """Transcribe un archivo de audio con Groq Whisper devolviendo segmentos.
+    """Transcribe un archivo de audio con OpenAI Whisper devolviendo segmentos.
+
+    No lanza si no hay voz: en ese caso devuelve una lista vacía (los videos con
+    solo música simplemente no llevan subtítulos).
 
     Args:
         audio_path: ruta del WAV (mono, 16 kHz).
 
     Returns:
-        Lista de ``Segment`` con timestamps.
-
-    Raises:
-        RuntimeError: si la API no devuelve segmentos utilizables.
+        Lista de ``Segment`` con timestamps (posiblemente vacía).
     """
-    from groq import Groq  # import perezoso para no requerir el SDK en tests
+    from openai import OpenAI  # import perezoso para no requerir el SDK en tests
 
     settings = get_settings()
-    if not settings.groq_api_key:
-        raise RuntimeError("GROQ_API_KEY no está configurada.")
+    if not settings.openai_api_key:
+        raise RuntimeError("OPENAI_API_KEY no está configurada.")
 
-    client = Groq(api_key=settings.groq_api_key)
-    logger.info("Transcribiendo con Groq (%s)", settings.groq_whisper_model)
+    client = OpenAI(api_key=settings.openai_api_key)
+    logger.info("Transcribiendo con OpenAI (%s): %s",
+                settings.openai_transcribe_model, audio_path.name)
 
     def _call() -> Any:
         with open(audio_path, "rb") as fh:
             return client.audio.transcriptions.create(
-                file=(audio_path.name, fh.read()),
-                model=settings.groq_whisper_model,
+                file=fh,
+                model=settings.openai_transcribe_model,
                 response_format="verbose_json",
                 timestamp_granularities=["segment"],
             )
 
-    raw = with_retries(_call, what="transcripción Groq")
+    raw = with_retries(_call, what="transcripción OpenAI")
     segments = parse_segments(raw)
-    if not segments:
-        raise RuntimeError("La transcripción no devolvió segmentos.")
-    logger.info("Transcripción completada: %d segmentos", len(segments))
+    logger.info("Transcripción de %s: %d segmentos", audio_path.name, len(segments))
     return segments

@@ -5,9 +5,8 @@ python-multipart==0.0.20
 jinja2==3.1.5
 pydantic-settings==2.7.1
 
-# SDKs de IA en la nube
-groq==0.15.0
-google-genai==1.2.0
+# SDK de IA en la nube (cubre transcripción Whisper y análisis GPT)
+openai==1.59.6
 
 # Tests
 pytest==8.3.4

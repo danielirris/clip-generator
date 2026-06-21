@@ -1,14 +1,15 @@
-"""FastAPI: endpoints de la API, subida de video y servidor web."""
+"""FastAPI: endpoints de la API, subida de videos y servidor web."""
 from __future__ import annotations
 
+import io
 import logging
-import shutil
 import tempfile
+import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -50,7 +51,7 @@ async def index(request: Request) -> HTMLResponse:
         {
             "request": request,
             "max_upload_mb": settings.max_upload_mb,
-            "duracion_total_s": settings.duracion_total_s,
+            "num_clips": settings.num_clips,
         },
     )
 
@@ -61,24 +62,15 @@ async def healthz() -> JSONResponse:
     return JSONResponse({"status": "ok"})
 
 
-@app.post("/api/jobs")
-async def create_job(file: UploadFile = File(...)) -> JSONResponse:
-    """Recibe el video, valida y crea un job.
-
-    Returns:
-        JSON con el ``job_id``.
-    """
+async def _save_upload(file: UploadFile, max_bytes: int) -> tuple[Path, str]:
+    """Guarda un upload en un temporal con control de tamaño (streaming)."""
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXT:
         raise HTTPException(
             status_code=400,
-            detail=f"Formato no soportado ({ext}). Usa: {', '.join(sorted(ALLOWED_EXT))}",
+            detail=f"Formato no soportado ({ext or 'sin extensión'}). "
+                   f"Usa: {', '.join(sorted(ALLOWED_EXT))}",
         )
-
-    max_bytes = settings.max_upload_mb * 1024 * 1024
-    settings.ensure_dirs()
-
-    # Guardamos el upload en un temporal con control de tamaño (streaming).
     tmp = Path(tempfile.mkstemp(suffix=ext, dir=str(settings.storage_dir))[1])
     size = 0
     try:
@@ -88,25 +80,44 @@ async def create_job(file: UploadFile = File(...)) -> JSONResponse:
                 if size > max_bytes:
                     raise HTTPException(
                         status_code=413,
-                        detail=f"El archivo supera el máximo de {settings.max_upload_mb} MB.",
+                        detail=f"'{file.filename}' supera el máximo de "
+                               f"{settings.max_upload_mb} MB.",
                     )
                 out.write(chunk)
     except HTTPException:
         tmp.unlink(missing_ok=True)
         raise
-    except Exception as exc:  # noqa: BLE001
-        tmp.unlink(missing_ok=True)
-        logger.exception("Error guardando el upload")
-        raise HTTPException(status_code=500, detail="Error guardando el archivo") from exc
     finally:
         await file.close()
-
     if size == 0:
         tmp.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail="El archivo está vacío.")
+        raise HTTPException(status_code=400, detail=f"'{file.filename}' está vacío.")
+    return tmp, file.filename or f"video{ext}"
 
-    job_id = manager.submit(tmp, file.filename or f"video{ext}")
-    return JSONResponse({"job_id": job_id}, status_code=201)
+
+@app.post("/api/jobs")
+async def create_job(files: list[UploadFile] = File(...)) -> JSONResponse:
+    """Recibe uno o varios videos (compendio) y crea un job.
+
+    Returns:
+        JSON con el ``job_id``.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No se enviaron videos.")
+
+    settings.ensure_dirs()
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    saved: list[tuple[Path, str]] = []
+    try:
+        for file in files:
+            saved.append(await _save_upload(file, max_bytes))
+    except HTTPException:
+        for tmp, _ in saved:
+            tmp.unlink(missing_ok=True)
+        raise
+
+    job_id = manager.submit(saved)
+    return JSONResponse({"job_id": job_id, "n_videos": len(saved)}, status_code=201)
 
 
 @app.get("/api/jobs/{job_id}")
@@ -118,14 +129,36 @@ async def get_job(job_id: str) -> JSONResponse:
     return JSONResponse(job.public_dict())
 
 
+@app.get("/api/jobs/{job_id}/download/{n}")
+async def download_clip(job_id: str, n: int) -> FileResponse:
+    """Descarga el clip ``n`` (1-indexado) del job."""
+    if not manager.get(job_id):
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    path = manager.clip_path(job_id, n)
+    if not path:
+        raise HTTPException(status_code=409, detail="El clip aún no está listo")
+    return FileResponse(path=str(path), media_type="video/mp4",
+                        filename=f"clip_{job_id}_{n}.mp4")
+
+
 @app.get("/api/jobs/{job_id}/download")
-async def download(job_id: str) -> FileResponse:
-    """Descarga el mp4 final del job."""
+async def download_all(job_id: str) -> StreamingResponse:
+    """Descarga todos los clips del job en un único .zip."""
     job = manager.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job no encontrado")
-    output = manager.output_for(job_id)
-    if not output:
-        raise HTTPException(status_code=409, detail="El clip aún no está listo")
-    filename = f"clip_{job_id}.mp4"
-    return FileResponse(path=str(output), media_type="video/mp4", filename=filename)
+    paths = [manager.clip_path(job_id, i) for i in range(1, job.n_clips + 1)]
+    paths = [p for p in paths if p]
+    if not paths:
+        raise HTTPException(status_code=409, detail="Los clips aún no están listos")
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as zf:
+        for i, p in enumerate(paths, start=1):
+            zf.write(p, arcname=f"clip_{i}.mp4")
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="clips_{job_id}.zip"'},
+    )
