@@ -40,6 +40,41 @@ h1 { font-size: 2rem; margin: 0 0 8px; }
 
 .hidden { display: none !important; }
 
+.mode-select {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.mode-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #39404d;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: .9rem;
+}
+.mode-opt:has(input:checked) { border-color: var(--accent); background: #20232c; }
+.mode-opt input { accent-color: var(--accent); }
+
+.ad-note {
+  color: var(--muted);
+  font-size: .9rem;
+  line-height: 1.6;
+  text-align: center;
+}
+.ad-note code {
+  display: inline-block;
+  background: #0f1115;
+  border: 1px solid #2a2f3a;
+  border-radius: 6px;
+  padding: 2px 8px;
+  color: var(--accent-2);
+  margin: 4px 0;
+}
+
 .dropzone {
   display: flex;
   flex-direction: column;

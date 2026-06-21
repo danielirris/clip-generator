@@ -24,6 +24,41 @@ class Segment:
         return {"start": self.start, "end": self.end, "text": self.text}
 
 
+@dataclass
+class Word:
+    """Una palabra de la transcripción con sus tiempos (para sincronía fina)."""
+
+    word: str
+    start: float
+    end: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"word": self.word, "start": self.start, "end": self.end}
+
+
+def parse_words(raw: Any) -> list[Word]:
+    """Normaliza la respuesta de OpenAI (verbose_json, granularity=word)."""
+    if isinstance(raw, dict):
+        words = raw.get("words") or []
+    else:
+        words = getattr(raw, "words", None) or []
+    result: list[Word] = []
+    for w in words:
+        if isinstance(w, dict):
+            text = str(w.get("word", "")).strip()
+            start = float(w.get("start", 0.0))
+            end = float(w.get("end", start))
+        else:
+            text = str(getattr(w, "word", "")).strip()
+            start = float(getattr(w, "start", 0.0))
+            end = float(getattr(w, "end", start))
+        if end < start:
+            end = start
+        if text:
+            result.append(Word(word=text, start=start, end=end))
+    return result
+
+
 def parse_segments(raw: Any) -> list[Segment]:
     """Normaliza la respuesta de OpenAI (verbose_json) a una lista de ``Segment``.
 
@@ -93,3 +128,33 @@ def transcribe_audio(audio_path: Path) -> list[Segment]:
     segments = parse_segments(raw)
     logger.info("Transcripción de %s: %d segmentos", audio_path.name, len(segments))
     return segments
+
+
+def transcribe_words(audio_path: Path) -> list[Word]:
+    """Transcribe con timestamps a nivel de PALABRA (para sincronía de animaciones).
+
+    Returns:
+        Lista de ``Word`` (posiblemente vacía si no hay voz).
+    """
+    from openai import OpenAI  # import perezoso
+
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise RuntimeError("OPENAI_API_KEY no está configurada.")
+
+    client = OpenAI(api_key=settings.openai_api_key)
+    logger.info("Transcribiendo (palabras) con OpenAI: %s", audio_path.name)
+
+    def _call() -> Any:
+        with open(audio_path, "rb") as fh:
+            return client.audio.transcriptions.create(
+                file=fh,
+                model=settings.openai_transcribe_model,
+                response_format="verbose_json",
+                timestamp_granularities=["word"],
+            )
+
+    raw = with_retries(_call, what="transcripción OpenAI (palabras)")
+    words = parse_words(raw)
+    logger.info("Transcripción de %s: %d palabras", audio_path.name, len(words))
+    return words

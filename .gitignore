@@ -33,3 +33,5 @@ env/
 
 # FFmpeg local con libass (no subir el binario)
 bin/
+
+node_modules/

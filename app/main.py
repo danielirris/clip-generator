@@ -8,7 +8,7 @@ import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -102,6 +102,7 @@ async def _save_upload(
 async def create_job(
     files: list[UploadFile] = File(...),
     music: list[UploadFile] = File(None),
+    mode: str = Form("montage"),
 ) -> JSONResponse:
     """Recibe varios videos (compendio) y varias pistas de música; crea un job.
 
@@ -110,6 +111,8 @@ async def create_job(
     """
     if not files:
         raise HTTPException(status_code=400, detail="No se enviaron videos.")
+    if mode not in ("montage", "ad"):
+        raise HTTPException(status_code=400, detail="Modo inválido (montage|ad).")
 
     settings.ensure_dirs()
     max_bytes = settings.max_upload_mb * 1024 * 1024
@@ -128,9 +131,9 @@ async def create_job(
             tmp.unlink(missing_ok=True)
         raise
 
-    job_id = manager.submit(saved, music_saved)
+    job_id = manager.submit(saved, music_saved, mode)
     return JSONResponse(
-        {"job_id": job_id, "n_videos": len(saved), "music": len(music_saved)},
+        {"job_id": job_id, "n_videos": len(saved), "music": len(music_saved), "mode": mode},
         status_code=201,
     )
 
@@ -157,11 +160,20 @@ async def download_clip(job_id: str, n: int) -> FileResponse:
 
 
 @app.get("/api/jobs/{job_id}/download")
-async def download_all(job_id: str) -> StreamingResponse:
-    """Descarga todos los clips del job en un único .zip."""
+async def download_all(job_id: str):
+    """Descarga el resultado: zip de clips (montaje) o del proyecto Remotion (anuncio)."""
     job = manager.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job no encontrado")
+
+    # Modo anuncio: devolvemos el .zip del proyecto Remotion ya armado.
+    if job.mode == "ad":
+        ad_zip = manager.ad_zip_path(job_id)
+        if not ad_zip:
+            raise HTTPException(status_code=409, detail="El proyecto aún no está listo")
+        return FileResponse(path=str(ad_zip), media_type="application/zip",
+                            filename=f"anuncio-remotion_{job_id}.zip")
+
     paths = [manager.clip_path(job_id, i) for i in range(1, job.n_clips + 1)]
     paths = [p for p in paths if p]
     if not paths:

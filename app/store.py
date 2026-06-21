@@ -38,10 +38,15 @@ class JobStore:
                 created_at  REAL NOT NULL,
                 output_dir  TEXT,
                 sources     TEXT NOT NULL,
-                music       TEXT
+                music       TEXT,
+                mode        TEXT NOT NULL DEFAULT 'montage'
             )
             """
         )
+        # Migración para bases existentes sin la columna 'mode'.
+        cols = {r[1] for r in self._conn.execute("PRAGMA table_info(jobs)")}
+        if "mode" not in cols:
+            self._conn.execute("ALTER TABLE jobs ADD COLUMN mode TEXT NOT NULL DEFAULT 'montage'")
         self._conn.commit()
 
     def save(
@@ -53,18 +58,19 @@ class JobStore:
         created_at: float,
         sources: list[Path],
         music: list[Path],
+        mode: str = "montage",
     ) -> None:
         """Inserta (o reemplaza) un job recién creado. ``music`` es una lista de pistas."""
         with self._lock:
             self._conn.execute(
                 "INSERT OR REPLACE INTO jobs "
                 "(id, filenames, status, progress, message, error, aviso, n_clips, "
-                " created_at, output_dir, sources, music) "
-                "VALUES (?, ?, ?, 0, 'En cola', '', '', 0, ?, NULL, ?, ?)",
+                " created_at, output_dir, sources, music, mode) "
+                "VALUES (?, ?, ?, 0, 'En cola', '', '', 0, ?, NULL, ?, ?, ?)",
                 (
                     id, json.dumps(filenames), status, created_at,
                     json.dumps([str(p) for p in sources]),
-                    json.dumps([str(p) for p in music]),
+                    json.dumps([str(p) for p in music]), mode,
                 ),
             )
             self._conn.commit()

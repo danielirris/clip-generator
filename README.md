@@ -58,6 +58,17 @@ la música, tu `PROMPT_EDICION.md` y una composición de ejemplo que lo lee. Áb
 con `npm install && npm run studio`. **Tu prompt de edición se edita una vez en
 `remotion/PROMPT_EDICION.md`** (en la raíz del repo) y se copia a cada proyecto.
 
+### Dos modos (selector en la web)
+- **Montajes** (por defecto): varios videos → 5 clips verticales mezclados (lo de arriba).
+- **Anuncio**: cada video → una composición en un **proyecto Remotion editable** que
+  ya aplica los lineamientos de `remotion/PROMPT_EDICION.md` de forma determinista:
+  **conserva el audio original**, música de fondo con **ducking**, **subtítulos
+  sincronizados palabra por palabra** (timestamps reales), **safe-area** con
+  auto-ajuste, **intro full-screen** y **CTA final** con botón animado a WhatsApp
+  (sin número, link configurable con `WHATSAPP_LINK`). Se descarga como `.zip`;
+  lo abres con `npm install && npm run studio` y lo afinas/renderizas en Remotion.
+  Verificado: el proyecto **renderiza** a 1080×1920 con subtítulos y CTA.
+
 ---
 
 ## Requisitos

@@ -81,6 +81,8 @@
     const data = new FormData();
     for (const f of files) data.append("files", f);
     for (const m of $("music").files) data.append("music", m);
+    const mode = document.querySelector('input[name="mode"]:checked').value;
+    data.append("mode", mode);
 
     show(progressCard);
     setProgress("queued", 2, "Subiendo videos…");
@@ -157,6 +159,26 @@
 
   function finish(jobId, job) {
     clipsGrid.innerHTML = "";
+
+    // Modo anuncio: un único proyecto Remotion en .zip (sin previsualización).
+    if (job.mode === "ad") {
+      $("result-title").textContent =
+        `✅ Proyecto Remotion listo (${job.n_videos} video(s))`;
+      const info = document.createElement("p");
+      info.className = "ad-note";
+      info.innerHTML =
+        "Descarga el .zip, descomprímelo y ábrelo con Remotion:<br>" +
+        "<code>cd remotion-ad &amp;&amp; npm install &amp;&amp; npm run studio</code><br>" +
+        "Sigue tu <b>PROMPT_EDICION.md</b> (incluido) para rematar el estilo.";
+      clipsGrid.appendChild(info);
+      downloadAll.textContent = "⬇️ Descargar proyecto Remotion (.zip)";
+      downloadAll.href = job.download_url || `/api/jobs/${jobId}/download`;
+      if (job.aviso) { avisoEl.textContent = job.aviso; avisoEl.classList.remove("hidden"); }
+      show(resultCard);
+      return;
+    }
+
+    downloadAll.textContent = "⬇️ Descargar todos (.zip)";
     (job.clips || []).forEach((url, i) => {
       const cell = document.createElement("div");
       cell.className = "clip-cell";

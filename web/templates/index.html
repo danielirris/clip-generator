@@ -18,6 +18,17 @@
 
     <section id="upload-card" class="card">
       <form id="upload-form">
+        <div class="mode-select">
+          <label class="mode-opt">
+            <input type="radio" name="mode" value="montage" checked>
+            <span><b>Montajes</b> — varios videos → 5 clips mezclados</span>
+          </label>
+          <label class="mode-opt">
+            <input type="radio" name="mode" value="ad">
+            <span><b>Anuncio</b> — cada video → proyecto Remotion editable (tu estilo)</span>
+          </label>
+        </div>
+
         <label for="file" class="dropzone" id="dropzone">
           <span class="dz-icon">⬆️</span>
           <span class="dz-text">Arrastra tus videos aquí o haz clic para elegir</span>

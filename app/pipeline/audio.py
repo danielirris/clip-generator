@@ -54,6 +54,23 @@ def probe_duration(source: Path) -> float:
         return 0.0
 
 
+def probe_resolution(source: Path) -> tuple[int, int]:
+    """Devuelve (ancho, alto) del primer stream de video (o 1080x1920 si falla)."""
+    proc = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=p=0:s=x", str(source),
+        ],
+        capture_output=True, text=True,
+    )
+    try:
+        w, h = proc.stdout.strip().split("x")
+        return int(w), int(h)
+    except (ValueError, AttributeError):
+        return 1080, 1920
+
+
 def extract_audio(source: Path, dest: Path) -> Path:
     """Extrae el audio de ``source`` a ``dest`` usando FFmpeg.
 

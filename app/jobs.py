@@ -27,6 +27,7 @@ from app.pipeline import audio, transcribe, analyze, render, cleanup
 from app.pipeline.compose import compose_clips
 from app.pipeline.fragments import VideoSource, build_pool
 from app.pipeline.remotion_export import export_remotion
+from app.pipeline.ad_export import build_ad_project, AdVideo
 from app.store import JobStore
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,7 @@ class Job:
     error: str = ""
     aviso: str = ""
     n_clips: int = 0
+    mode: str = "montage"  # montage | ad
     created_at: float = field(default_factory=time.time)
     output_dir: str | None = None
 
@@ -76,12 +78,14 @@ class Job:
         d = asdict(self)
         d["status"] = self.status.value
         d["n_videos"] = len(self.filenames)
-        d["download_ready"] = self.status == JobStatus.DONE
-        # URLs de descarga de cada clip.
+        done = self.status == JobStatus.DONE
+        d["download_ready"] = done
+        # En modo montaje hay previsualización por clip; en modo anuncio, un .zip.
         d["clips"] = (
             [f"/api/jobs/{self.id}/download/{i}" for i in range(1, self.n_clips + 1)]
-            if self.status == JobStatus.DONE else []
+            if done and self.mode == "montage" else []
         )
+        d["download_url"] = f"/api/jobs/{self.id}/download" if done else None
         d.pop("output_dir", None)
         return d
 
@@ -124,7 +128,7 @@ class JobManager:
                     continue
                 job = Job(id=row["id"], filenames=json.loads(row["filenames"]),
                           created_at=row["created_at"], status=JobStatus.QUEUED,
-                          message="Reanudado tras reinicio")
+                          mode=row["mode"], message="Reanudado tras reinicio")
                 with self._lock:
                     self._jobs[job.id] = job
                     self._sources[job.id] = sources
@@ -142,6 +146,7 @@ class JobManager:
         self,
         source_tmps: list[tuple[Path, str]],
         music_tmps: list[tuple[Path, str]] | None = None,
+        mode: str = "montage",
     ) -> str:
         """Registra un nuevo job, mueve los uploads a su carpeta y lo encola.
 
@@ -173,17 +178,18 @@ class JobManager:
             shutil.move(str(mtmp), str(mdest))
             music_paths.append(mdest)
 
-        job = Job(id=job_id, filenames=filenames)
+        job = Job(id=job_id, filenames=filenames, mode=mode)
         with self._lock:
             self._jobs[job_id] = job
             self._sources[job_id] = paths
             if music_paths:
                 self._music[job_id] = music_paths
         self._store.save(id=job_id, filenames=filenames, status=JobStatus.QUEUED.value,
-                         created_at=job.created_at, sources=paths, music=music_paths)
+                         created_at=job.created_at, sources=paths, music=music_paths,
+                         mode=mode)
         self._queue.put(job_id)
-        logger.info("Job %s encolado (%d videos, %d pistas)",
-                    job_id, len(paths), len(music_paths))
+        logger.info("Job %s encolado (modo=%s, %d videos, %d pistas)",
+                    job_id, mode, len(paths), len(music_paths))
         return job_id
 
     def get(self, job_id: str) -> Job | None:
@@ -199,7 +205,7 @@ class JobManager:
             id=row["id"], filenames=json.loads(row["filenames"]),
             status=JobStatus(row["status"]), progress=row["progress"],
             message=row["message"], error=row["error"], aviso=row["aviso"],
-            n_clips=row["n_clips"], created_at=row["created_at"],
+            n_clips=row["n_clips"], mode=row["mode"], created_at=row["created_at"],
             output_dir=row["output_dir"],
         )
 
@@ -208,6 +214,14 @@ class JobManager:
         job = self.get(job_id)
         if job and job.status == JobStatus.DONE and job.output_dir:
             p = Path(job.output_dir) / f"clip_{n}.mp4"
+            return p if p.exists() else None
+        return None
+
+    def ad_zip_path(self, job_id: str) -> Path | None:
+        """Ruta del .zip del proyecto Remotion (modo anuncio) si está listo."""
+        job = self.get(job_id)
+        if job and job.status == JobStatus.DONE and job.output_dir:
+            p = Path(job.output_dir) / "anuncio-remotion.zip"
             return p if p.exists() else None
         return None
 
@@ -260,6 +274,11 @@ class JobManager:
 
         work_dir = settings.jobs_dir / job_id
         output_dir = settings.outputs_dir / job_id
+
+        job = self.get(job_id)
+        if job and job.mode == "ad":
+            self._process_ad(job_id, sources, work_dir, output_dir)
+            return
 
         try:
             # 1) Extraer audio + medir duración + 2) transcribir, por video.
@@ -358,6 +377,58 @@ class JobManager:
             )
         finally:
             # Limpieza: borra temporales y videos fuente (deja solo los clips).
+            cleanup.cleanup_job_dir(work_dir)
+            with self._lock:
+                self._sources.pop(job_id, None)
+                self._music.pop(job_id, None)
+            cleanup.purge_old_outputs(settings.outputs_dir, settings.retencion_horas)
+
+    def _process_ad(self, job_id: str, sources: list[Path],
+                    work_dir: Path, output_dir: Path) -> None:
+        """Modo anuncio: genera un proyecto Remotion (1 composición por video)."""
+        settings = self._settings
+        music_paths = self._music.get(job_id, [])
+        try:
+            videos: list[AdVideo] = []
+            for vid, src in enumerate(sources):
+                self._update(job_id, status=JobStatus.EXTRACTING,
+                             message=f"Procesando audio {vid + 1}/{len(sources)}")
+                duration = audio.probe_duration(src)
+                width, height = audio.probe_resolution(src)
+                audio_path = work_dir / f"audio_{vid:03d}.wav"
+                audio.extract_audio(src, audio_path)
+
+                self._update(job_id, status=JobStatus.TRANSCRIBING,
+                             message=f"Transcribiendo (palabras) {vid + 1}/{len(sources)}")
+                words = transcribe.transcribe_words(audio_path)
+                audio_path.unlink(missing_ok=True)
+
+                music = music_paths[vid % len(music_paths)] if music_paths else None
+                videos.append(AdVideo(
+                    id=vid, path=src, name=self.get(job_id).filenames[vid],
+                    width=width, height=height, duration=duration,
+                    words=words, music=music,
+                ))
+
+            self._update(job_id, status=JobStatus.RENDERING,
+                         message="Generando proyecto Remotion (anuncio)")
+            build_ad_project(
+                videos, output_dir,
+                cta_texto=settings.cta_texto, whatsapp=settings.whatsapp_link,
+                vol=settings.musica_volumen, vol_duck=settings.musica_volumen_ducking,
+            )
+            # Empaquetar el proyecto en un .zip para descargar.
+            shutil.make_archive(str(output_dir / "anuncio-remotion"), "zip",
+                                str(output_dir / "remotion-ad"))
+
+            self._update(job_id, status=JobStatus.DONE, message="Completado",
+                         n_clips=len(videos), output_dir=str(output_dir))
+            logger.info("Job %s (anuncio) completado: %d videos", job_id, len(videos))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Fallo en el modo anuncio del job %s", job_id)
+            self._update(job_id, status=JobStatus.ERROR,
+                         message="Error en el procesamiento", error=str(exc))
+        finally:
             cleanup.cleanup_job_dir(work_dir)
             with self._lock:
                 self._sources.pop(job_id, None)

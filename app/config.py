@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     # --- Recursos (estabilidad en VPS) ---
     ffmpeg_threads: int = 1       # hilos de FFmpeg (1 = menor pico de CPU/RAM)
 
+    # --- Modo anuncio (proyecto Remotion por video) ---
+    whatsapp_link: str = "https://wa.me/0000000000"  # CTA (placeholder editable)
+    cta_texto: str = "Haz clic para conseguir el tuyo"
+    musica_volumen: float = 0.18  # volumen base de la música (0-1)
+    musica_volumen_ducking: float = 0.08  # volumen mientras habla la voz
+
     # --- Semilla para variar cortes/transiciones de forma reproducible ---
     seed: int = 1234
 
