@@ -28,6 +28,7 @@ WEB_DIR = BASE_DIR / "web"
 TEMPLATES = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 
 ALLOWED_EXT = {".mp4", ".mov", ".mkv"}
+ALLOWED_AUDIO_EXT = {".mp3", ".m4a", ".wav", ".aac", ".ogg"}
 
 
 @asynccontextmanager
@@ -62,14 +63,16 @@ async def healthz() -> JSONResponse:
     return JSONResponse({"status": "ok"})
 
 
-async def _save_upload(file: UploadFile, max_bytes: int) -> tuple[Path, str]:
+async def _save_upload(
+    file: UploadFile, max_bytes: int, allowed: set[str] = ALLOWED_EXT
+) -> tuple[Path, str]:
     """Guarda un upload en un temporal con control de tamaño (streaming)."""
     ext = Path(file.filename or "").suffix.lower()
-    if ext not in ALLOWED_EXT:
+    if ext not in allowed:
         raise HTTPException(
             status_code=400,
             detail=f"Formato no soportado ({ext or 'sin extensión'}). "
-                   f"Usa: {', '.join(sorted(ALLOWED_EXT))}",
+                   f"Usa: {', '.join(sorted(allowed))}",
         )
     tmp = Path(tempfile.mkstemp(suffix=ext, dir=str(settings.storage_dir))[1])
     size = 0
@@ -96,8 +99,11 @@ async def _save_upload(file: UploadFile, max_bytes: int) -> tuple[Path, str]:
 
 
 @app.post("/api/jobs")
-async def create_job(files: list[UploadFile] = File(...)) -> JSONResponse:
-    """Recibe uno o varios videos (compendio) y crea un job.
+async def create_job(
+    files: list[UploadFile] = File(...),
+    music: UploadFile | None = File(None),
+) -> JSONResponse:
+    """Recibe uno o varios videos (compendio) y una música opcional; crea un job.
 
     Returns:
         JSON con el ``job_id``.
@@ -108,16 +114,24 @@ async def create_job(files: list[UploadFile] = File(...)) -> JSONResponse:
     settings.ensure_dirs()
     max_bytes = settings.max_upload_mb * 1024 * 1024
     saved: list[tuple[Path, str]] = []
+    music_saved: tuple[Path, str] | None = None
     try:
         for file in files:
             saved.append(await _save_upload(file, max_bytes))
+        if music is not None and music.filename:
+            music_saved = await _save_upload(music, max_bytes, ALLOWED_AUDIO_EXT)
     except HTTPException:
         for tmp, _ in saved:
             tmp.unlink(missing_ok=True)
+        if music_saved:
+            music_saved[0].unlink(missing_ok=True)
         raise
 
-    job_id = manager.submit(saved)
-    return JSONResponse({"job_id": job_id, "n_videos": len(saved)}, status_code=201)
+    job_id = manager.submit(saved, music_saved)
+    return JSONResponse(
+        {"job_id": job_id, "n_videos": len(saved), "music": music_saved is not None},
+        status_code=201,
+    )
 
 
 @app.get("/api/jobs/{job_id}")

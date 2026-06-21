@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import random
 import shutil
 import threading
 import time
@@ -24,6 +25,7 @@ from app.config import Settings, get_settings
 from app.pipeline import audio, transcribe, analyze, render, cleanup
 from app.pipeline.compose import compose_clips
 from app.pipeline.fragments import VideoSource, build_pool
+from app.pipeline.remotion_export import export_remotion
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +91,7 @@ class JobManager:
         self._settings = settings or get_settings()
         self._jobs: dict[str, Job] = {}
         self._sources: dict[str, list[Path]] = {}
+        self._music: dict[str, Path] = {}
         self._lock = threading.Lock()
         self._queue: "queue.Queue[str]" = queue.Queue()
         self._worker = threading.Thread(target=self._run_worker, daemon=True)
@@ -104,11 +107,16 @@ class JobManager:
             logger.info("JobManager iniciado.")
 
     # --- API pública ---
-    def submit(self, source_tmps: list[tuple[Path, str]]) -> str:
+    def submit(
+        self,
+        source_tmps: list[tuple[Path, str]],
+        music_tmp: tuple[Path, str] | None = None,
+    ) -> str:
         """Registra un nuevo job, mueve los uploads a su carpeta y lo encola.
 
         Args:
             source_tmps: lista de (ruta_temporal, nombre_original) de los videos.
+            music_tmp: (ruta_temporal, nombre) de la música opcional del lote.
 
         Returns:
             El ``job_id`` generado.
@@ -127,12 +135,22 @@ class JobManager:
             paths.append(dest)
             filenames.append(name)
 
+        music_path: Path | None = None
+        if music_tmp is not None:
+            mtmp, mname = music_tmp
+            mext = Path(mname).suffix.lower() or ".mp3"
+            music_path = sources_dir / f"music{mext}"
+            shutil.move(str(mtmp), str(music_path))
+
         job = Job(id=job_id, filenames=filenames)
         with self._lock:
             self._jobs[job_id] = job
             self._sources[job_id] = paths
+            if music_path is not None:
+                self._music[job_id] = music_path
         self._queue.put(job_id)
-        logger.info("Job %s encolado (%d videos)", job_id, len(paths))
+        logger.info("Job %s encolado (%d videos, música=%s)",
+                    job_id, len(paths), music_path is not None)
         return job_id
 
     def get(self, job_id: str) -> Job | None:
@@ -208,35 +226,57 @@ class JobManager:
                 segs = transcribe.transcribe_audio(audio_path)
                 audio_path.unlink(missing_ok=True)  # ya no se necesita
 
-                videos.append(VideoSource(id=vid, path=src, duration=duration, segments=segs))
+                videos.append(VideoSource(id=vid, path=src, duration=duration,
+                                          name=self.get(job_id).filenames[vid], segments=segs))
                 segments_by_video[vid] = segs
 
             # 3) Analizar ganchos (impactantes) sobre todos los videos.
             self._update(job_id, status=JobStatus.ANALYZING, message="Detectando ganchos")
             moments = analyze.analyze_hooks([v.segments for v in videos])
 
-            # Construir pool y componer N clips.
-            pool = build_pool(videos, settings.duracion_beat_s)
+            # Construir pool y componer N clips (cortes de duración variable).
+            rng = random.Random(f"{settings.seed}:{job_id}")
+            pool = build_pool(videos, rng, settings.beat_min_s, settings.beat_max_s)
             n_clips = max(1, settings.num_clips)
+            # Las transiciones (xfade) solapan y acortan el clip; compensamos
+            # componiendo un poco más de material para acabar cerca de la duración.
+            buffer_s = 0.0
+            if settings.transiciones:
+                avg_trans = (settings.trans_min + settings.trans_max) / 2
+                buffer_s = avg_trans * settings.trans_dur_s
             clips = compose_clips(
-                pool, moments, videos,
+                pool, moments, videos, rng,
                 num_clips=n_clips,
-                total_beats=settings.total_beats,
+                duracion_total_s=settings.duracion_total_s + buffer_s,
                 hook_beats=settings.hook_beats,
-                beat_s=settings.duracion_beat_s,
+                beat_min=settings.beat_min_s,
+                beat_max=settings.beat_max_s,
             )
 
-            # 4) Render de los N clips (beats únicos cacheados).
+            # 4) Render de los N clips (beats cacheados, transiciones, música).
             self._update(
                 job_id, status=JobStatus.RENDERING,
                 message=f"Renderizando {n_clips} clips",
             )
+            music_path = self._music.get(job_id)
+            video_names = {v.id: v.name for v in videos}
             result = render.render_clips(
-                clips, segments_by_video, work_dir, output_dir,
-                beat_s=settings.duracion_beat_s,
+                clips, segments_by_video, video_names, work_dir, output_dir, rng,
                 modo_fondo=settings.modo_fondo,
                 subtitulos=settings.subtitulos,
+                transiciones=settings.transiciones,
+                trans_min=settings.trans_min,
+                trans_max=settings.trans_max,
+                modo_transicion=settings.modo_transicion,
+                trans_dur=settings.trans_dur_s,
+                music_path=music_path,
             )
+
+            # 5) Exportar proyecto Remotion editable.
+            if settings.remotion_export:
+                self._update(job_id, status=JobStatus.RENDERING,
+                             message="Exportando proyecto Remotion")
+                export_remotion(output_dir, result, music_path)
 
             aviso = ""
             if len(pool) < settings.min_fragmentos:
@@ -265,6 +305,7 @@ class JobManager:
             cleanup.cleanup_job_dir(work_dir)
             with self._lock:
                 self._sources.pop(job_id, None)
+                self._music.pop(job_id, None)
             cleanup.purge_old_outputs(settings.outputs_dir, settings.retencion_horas)
 
 

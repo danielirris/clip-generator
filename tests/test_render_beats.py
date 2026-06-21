@@ -1,92 +1,118 @@
-"""Tests del pool de fragmentos, composición de clips y subtítulos ASS."""
+"""Tests del pool de fragmentos, composición, transiciones y subtítulos."""
+import random
 from pathlib import Path
 
 from app.pipeline.analyze import Moment
 from app.pipeline.fragments import VideoSource, Beat, video_beats, build_pool
 from app.pipeline.compose import compose_clips, build_hook_beats, unique_beats
-from app.pipeline.render import build_beat_ass, _ass_time
+from app.pipeline.render import (
+    build_beat_ass, _ass_time, plan_transitions, _xfade_offsets,
+)
 from app.pipeline.transcribe import Segment
 
 
 def _vid(i, dur):
-    return VideoSource(id=i, path=Path(f"/v{i}.mp4"), duration=dur, segments=[])
+    return VideoSource(id=i, path=Path(f"/v{i}.mp4"), duration=dur)
 
 
-# --- pool de fragmentos ---
-def test_video_beats_non_overlapping():
-    beats = video_beats(_vid(0, 8), beat_s=2)
-    assert [b.start for b in beats] == [0.0, 2.0, 4.0, 6.0]
+def _rng():
+    return random.Random(42)
 
 
-def test_video_beats_drops_partial_tail():
-    # 7s -> 3 beats completos (0,2,4); el resto (6-7) no llega a 2s.
-    assert len(video_beats(_vid(0, 7), beat_s=2)) == 3
+# --- pool de fragmentos (duración variable 2-4s) ---
+def test_video_beats_respect_min_max():
+    beats = video_beats(_vid(0, 30), _rng(), 2.0, 4.0)
+    assert beats, "debe producir beats"
+    assert all(2.0 <= b.dur <= 4.0 for b in beats)
+    # No se solapan y caben en el video.
+    assert all(beats[i].start + beats[i].dur <= beats[i + 1].start + 1e-6
+               for i in range(len(beats) - 1))
+    assert beats[-1].start + beats[-1].dur <= 30 + 1e-6
 
 
 def test_pool_interleaves_videos():
-    pool = build_pool([_vid(0, 6), _vid(1, 6)], beat_s=2)
-    # Round-robin: v0@0, v1@0, v0@2, v1@2, ...
-    assert [b.video_id for b in pool[:4]] == [0, 1, 0, 1]
-    assert len(pool) == 6  # 3 beats por video
+    pool = build_pool([_vid(0, 20), _vid(1, 20), _vid(2, 20)], _rng(), 2.0, 4.0)
+    assert len({b.video_id for b in pool[:3]}) == 3  # ronda: 1 de cada uno
 
 
-def test_pool_any_window_mixes_videos():
-    pool = build_pool([_vid(i, 10) for i in range(3)], beat_s=2)
-    # Cualquier ventana de >=3 beats cubre los 3 videos.
-    assert len({b.video_id for b in pool[:3]}) == 3
-
-
-# --- composición de clips ---
-def test_compose_produces_requested_clips():
-    videos = [_vid(i, 30) for i in range(4)]
-    pool = build_pool(videos, beat_s=2)
-    moments = [Moment(0, 4, 6, 90, "a"), Moment(1, 2, 4, 80, "b")]
-    clips = compose_clips(pool, moments, videos,
-                          num_clips=5, total_beats=24, hook_beats=2, beat_s=2)
+# --- composición ---
+def test_compose_sums_to_target_duration():
+    videos = [_vid(i, 60) for i in range(5)]
+    rng = _rng()
+    pool = build_pool(videos, rng, 2.0, 4.0)
+    clips = compose_clips(pool, [], videos, rng, num_clips=5,
+                          duracion_total_s=48, hook_beats=2, beat_min=2.0, beat_max=4.0)
     assert len(clips) == 5
-    assert all(len(c) == 24 for c in clips)
+    for clip in clips:
+        assert abs(sum(b.dur for b in clip) - 48) < 1e-6
 
 
-def test_compose_hooks_go_first():
-    videos = [_vid(i, 30) for i in range(3)]
-    pool = build_pool(videos, beat_s=2)
-    moments = [Moment(2, 10, 12, 99, "fuerte")]
-    clips = compose_clips(pool, moments, videos,
-                          num_clips=1, total_beats=24, hook_beats=2, beat_s=2)
-    # El primer beat es el gancho del video 2 en t=10.
+def test_compose_each_clip_mixes_all_videos():
+    videos = [_vid(i, 60) for i in range(5)]
+    rng = _rng()
+    pool = build_pool(videos, rng, 2.0, 4.0)
+    clips = compose_clips(pool, [], videos, rng, num_clips=5,
+                          duracion_total_s=48, hook_beats=2, beat_min=2.0, beat_max=4.0)
+    for clip in clips:
+        assert len({b.video_id for b in clip}) == 5
+
+
+def test_compose_clips_differ():
+    videos = [_vid(i, 80) for i in range(5)]
+    rng = _rng()
+    pool = build_pool(videos, rng, 2.0, 4.0)
+    clips = compose_clips(pool, [], videos, rng, num_clips=5,
+                          duracion_total_s=48, hook_beats=2, beat_min=2.0, beat_max=4.0)
+    sigs = {tuple(b.key() for b in c) for c in clips}
+    assert len(sigs) == 5
+
+
+def test_compose_hook_goes_first():
+    videos = [_vid(i, 60) for i in range(3)]
+    rng = _rng()
+    pool = build_pool(videos, rng, 2.0, 4.0)
+    clips = compose_clips(pool, [Moment(2, 10, 13, 99, "fuerte")], videos, rng,
+                          num_clips=1, duracion_total_s=48, hook_beats=2,
+                          beat_min=2.0, beat_max=4.0)
     assert clips[0][0].video_id == 2
     assert clips[0][0].start == 10.0
 
 
-def test_compose_clips_each_mix_all_videos():
-    videos = [_vid(i, 40) for i in range(5)]
-    pool = build_pool(videos, beat_s=2)
-    clips = compose_clips(pool, [], videos,
-                          num_clips=5, total_beats=24, hook_beats=2, beat_s=2)
-    for clip in clips:
-        assert len({b.video_id for b in clip}) == 5  # los 5 videos presentes
-
-
-def test_compose_clips_differ():
-    videos = [_vid(i, 60) for i in range(5)]
-    pool = build_pool(videos, beat_s=2)
-    clips = compose_clips(pool, [], videos,
-                          num_clips=5, total_beats=24, hook_beats=2, beat_s=2)
-    sigs = {tuple(b.key() for b in c) for c in clips}
-    assert len(sigs) == 5  # las 5 combinaciones son distintas
-
-
 def test_build_hook_beats_default_when_no_moments():
-    videos = [_vid(0, 10), _vid(1, 10)]
-    hooks = build_hook_beats([], videos, beat_s=2)
+    hooks = build_hook_beats([], [_vid(0, 10), _vid(1, 10)], _rng(), 2.0, 4.0)
     assert [h.start for h in hooks] == [0.0, 0.0]
     assert {h.video_id for h in hooks} == {0, 1}
 
 
 def test_unique_beats_dedupes():
-    b = Beat(0, Path("/v0.mp4"), 4.0)
-    clips = [[b, b], [b]]
-    assert len(unique_beats(clips)) == 1
+    b = Beat(0, Path("/v0.mp4"), 4.0, 2.0)
+    assert len(unique_beats([[b, b], [b]])) == 1
+
+
+# --- transiciones ---
+def test_plan_transitions_count_in_range():
+    plan = plan_transitions(20, _rng(), 3, 6, "variadas")
+    assert 3 <= len(plan) <= 6
+    idxs = [b for b, _ in plan]
+    assert idxs == sorted(set(idxs))           # fronteras únicas y ordenadas
+    assert all(1 <= b < 20 for b in idxs)
+
+
+def test_plan_transitions_none_for_corte():
+    assert plan_transitions(20, _rng(), 3, 6, "corte") == []
+
+
+def test_plan_transitions_none_for_single_beat():
+    assert plan_transitions(1, _rng(), 3, 6, "variadas") == []
+
+
+def test_plan_transitions_fundido_uses_fade():
+    plan = plan_transitions(20, _rng(), 3, 6, "fundido")
+    assert all(t == "fade" for _, t in plan)
+
+
+def test_xfade_offsets():
+    assert _xfade_offsets([4.0, 3.0, 2.0], 0.5) == [3.5, 6.0]
 
 
 # --- subtítulos ASS ---

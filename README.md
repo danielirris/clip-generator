@@ -20,10 +20,11 @@ funciona cómodamente en una VPS pequeña (8 GB RAM / 80 GB disco).
 4. Se trocean **todos** los videos en fragmentos de 2 s → un **pool** grande.
 5. Se componen **N clips** (5 por defecto). Cada clip = `[ganchos al inicio]` +
    `[cuerpo con fragmentos variados de todos los videos]`. Cada clip es una
-   **combinación distinta**.
-6. FFmpeg normaliza cada fragmento a **1080×1920** (una sola vez, con caché) y
-   concatena cada clip con `-c copy`. Ves el progreso y descargas los clips
-   (uno a uno o todos en un `.zip`). Los temporales se borran.
+   **combinación distinta**, con **cortes de duración variable (2–4 s)**.
+6. FFmpeg normaliza cada fragmento a **1080×1920** (una sola vez, con caché),
+   aplica **transiciones variadas** (3–6 por clip), **quita el audio original** y
+   le pone **la música que subiste**. Se exporta además un **proyecto Remotion
+   editable**. Ves el progreso y descargas los clips (uno a uno o todos en `.zip`).
 
 ```
 [ N videos ] → [ Audio + Whisper ] → [ GPT: ganchos ] → [ Pool de fragmentos ]
@@ -38,12 +39,24 @@ funciona cómodamente en una VPS pequeña (8 GB RAM / 80 GB disco).
 - Los **N clips son combinaciones diferentes** del mismo pool.
 
 ### Especificación de cada clip
-- Duración: **48 s** = **24 fragmentos × 2 s** (configurable).
+- Duración: **~48 s** (las transiciones solapan ~1–2 s; sin transiciones es 48 s exactos).
+- **Cortes de duración variable** entre `BEAT_MIN_S` y `BEAT_MAX_S` (2–4 s).
 - Vertical **9:16**, **1080×1920**, **H.264**, **30 fps**, **AAC**.
 - Fondo configurable (`MODO_FONDO`): `blur` (fondo difuminado + video centrado),
   `crop` (recorte centrado) o `pad_negro` (barras negras).
+- **Transiciones** entre fragmentos (3–6 por clip), `variadas` (fade/slide/wipe/
+  zoom), `fundido` (solo crossfade) o `corte` (sin efecto). Configurable.
 - Subtítulos quemados, sincronizados por video, grandes y con contorno
   (`SUBTITULOS`).
+- **Audio:** se descarta el audio original y se usa la **música subida con el
+  lote** (en bucle, recortada a la duración). Sin música → clip en silencio.
+
+### Proyecto Remotion (edición)
+Cada job exporta en `storage/outputs/{job_id}/remotion/` un proyecto editable:
+`timeline.json` (la receta de cada clip), `beats/` (fragmentos normalizados),
+la música, tu `PROMPT_EDICION.md` y una composición de ejemplo que lo lee. Ábrelo
+con `npm install && npm run studio`. **Tu prompt de edición se edita una vez en
+`remotion/PROMPT_EDICION.md`** (en la raíz del repo) y se copia a cada proyecto.
 
 ---
 
@@ -129,11 +142,19 @@ docker run --rm -p 8000:8000 \
 | `OPENAI_ANALYZE_MODEL` | `gpt-4o-mini` | Modelo de análisis de ganchos. |
 | `NUM_CLIPS` | `5` | Cuántos clips generar por compendio (3–5 típico). |
 | `DURACION_TOTAL_S` | `48` | Duración de cada clip (s). |
-| `DURACION_BEAT_S` | `2` | Duración de cada fragmento (s). |
+| `BEAT_MIN_S` | `2` | Duración mínima de cada corte (s). |
+| `BEAT_MAX_S` | `4` | Duración máxima de cada corte (s). |
 | `MIN_FRAGMENTOS` | `50` | Tamaño mínimo recomendado del pool (solo aviso). |
 | `HOOK_BEATS` | `2` | Fragmentos "impactantes" al inicio de cada clip. |
 | `MODO_FONDO` | `blur` | `blur` \| `crop` \| `pad_negro`. |
 | `SUBTITULOS` | `true` | Quemar subtítulos (`true`/`false`). |
+| `TRANSICIONES` | `true` | Aplicar transiciones entre fragmentos. |
+| `TRANS_MIN` / `TRANS_MAX` | `3` / `6` | Nº de transiciones por clip. |
+| `MODO_TRANSICION` | `variadas` | `variadas` \| `fundido` \| `corte`. |
+| `TRANS_DUR_S` | `0.4` | Duración del solape de cada transición. |
+| `QUITAR_AUDIO_ORIGINAL` | `true` | Quitar el audio original (usa la música). |
+| `REMOTION_EXPORT` | `true` | Exportar proyecto Remotion editable. |
+| `SEED` | `1234` | Semilla para reproducir cortes/transiciones. |
 | `MAX_UPLOAD_MB` | `2048` | Tamaño máximo por archivo (MB). |
 | `RETENCION_HORAS` | `24` | Borra outputs más antiguos que N horas. |
 | `PORT` | `8000` | Puerto del servidor. |
@@ -145,7 +166,7 @@ docker run --rm -p 8000:8000 \
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | GET  | `/` | Página de subida. |
-| POST | `/api/jobs` | Sube uno o varios videos (multipart, campo `files`) → `{ "job_id": ... }`. |
+| POST | `/api/jobs` | Sube videos (campo `files`) y música opcional (campo `music`) → `{ "job_id": ... }`. |
 | GET  | `/api/jobs/{id}` | Estado del job + progreso + lista de URLs de clips cuando termina. |
 | GET  | `/api/jobs/{id}/download/{n}` | Descarga el clip `n` (1-indexado). |
 | GET  | `/api/jobs/{id}/download` | Descarga **todos** los clips en un `.zip`. |
@@ -224,10 +245,12 @@ clip-generator/
 │       ├── audio.py         # extracción de audio + duración (ffmpeg/ffprobe)
 │       ├── transcribe.py    # OpenAI Whisper → segmentos
 │       ├── analyze.py       # OpenAI GPT → ganchos (JSON)
-│       ├── fragments.py     # pool de fragmentos de todos los videos
+│       ├── fragments.py     # pool de fragmentos (cortes variables 2-4s)
 │       ├── compose.py       # composición de N clips (combinaciones)
-│       ├── render.py        # 9:16, subtítulos, render con caché y concat
+│       ├── render.py        # 9:16, subtítulos, transiciones, música, concat
+│       ├── remotion_export.py # exporta el proyecto Remotion editable
 │       └── cleanup.py       # borrado de temporales / purga
+├── remotion/PROMPT_EDICION.md  # tu prompt de edición (se copia a cada job)
 ├── web/
 │   ├── templates/index.html
 │   └── static/ (style.css, app.js)

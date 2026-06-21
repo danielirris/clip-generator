@@ -30,11 +30,28 @@ class Settings(BaseSettings):
     # --- Especificación de los clips ---
     num_clips: int = 5            # cuántos clips generar por compendio (3-5 típico)
     duracion_total_s: int = 48
-    duracion_beat_s: int = 2
+    beat_min_s: float = 2.0       # duración mínima de cada fragmento (corte)
+    beat_max_s: float = 4.0       # duración máxima de cada fragmento (corte)
     min_fragmentos: int = 50      # tamaño mínimo del pool de fragmentos
-    hook_beats: int = 2           # beats "impactantes" al inicio de cada clip
+    hook_beats: int = 2           # fragmentos "impactantes" al inicio de cada clip
     modo_fondo: str = "blur"      # blur | crop | pad_negro
     subtitulos: bool = True
+
+    # --- Transiciones ---
+    transiciones: bool = True     # aplicar transiciones entre fragmentos
+    trans_min: int = 3            # nº mínimo de transiciones por clip
+    trans_max: int = 6            # nº máximo de transiciones por clip
+    modo_transicion: str = "variadas"  # variadas | fundido | corte
+    trans_dur_s: float = 0.4      # duración del solape de cada transición
+
+    # --- Audio ---
+    quitar_audio_original: bool = True  # los clips no llevan el audio de los videos
+
+    # --- Remotion ---
+    remotion_export: bool = True  # exportar proyecto Remotion editable por job
+
+    # --- Semilla para variar cortes/transiciones de forma reproducible ---
+    seed: int = 1234
 
     # --- Límites / recursos ---
     max_upload_mb: int = 2048
@@ -57,11 +74,6 @@ class Settings(BaseSettings):
     def outputs_dir(self) -> Path:
         """Carpeta de resultados finales (un subdirectorio por job)."""
         return self.storage_dir / "outputs"
-
-    @property
-    def total_beats(self) -> int:
-        """Número de beats por clip (p.ej. 48 / 2 = 24)."""
-        return max(1, self.duracion_total_s // self.duracion_beat_s)
 
     def ensure_dirs(self) -> None:
         """Crea las carpetas de almacenamiento si no existen."""
