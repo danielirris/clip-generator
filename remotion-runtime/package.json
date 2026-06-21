@@ -1,0 +1,14 @@
+{
+  "name": "remotion-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Runtime persistente para renderizar los proyectos de anuncio con Remotion.",
+  "dependencies": {
+    "@remotion/bundler": "^4.0.0",
+    "@remotion/renderer": "^4.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "remotion": "^4.0.0"
+  }
+}

@@ -157,44 +157,60 @@
     }, 2000);
   }
 
+  function clipCell(url, label) {
+    const cell = document.createElement("div");
+    cell.className = "clip-cell";
+    const v = document.createElement("video");
+    v.src = url; v.controls = true; v.playsInline = true;
+    const a = document.createElement("a");
+    a.href = url; a.className = "clip-dl"; a.textContent = label;
+    cell.append(v, a);
+    return cell;
+  }
+
   function finish(jobId, job) {
     clipsGrid.innerHTML = "";
+    const old = document.getElementById("project-link");
+    if (old) old.remove();
 
-    // Modo anuncio: un único proyecto Remotion en .zip (sin previsualización).
-    if (job.mode === "ad") {
+    const clips = job.clips || [];
+    const isAd = job.mode === "ad";
+
+    if (clips.length) {
+      // Hay video(s) terminado(s): previsualiza y descarga.
+      clips.forEach((url, i) =>
+        clipsGrid.append(clipCell(url, `⬇️ ${isAd ? "Anuncio" : "Clip"} ${i + 1}`))
+      );
       $("result-title").textContent =
-        `✅ Proyecto Remotion listo (${job.n_videos} video(s))`;
+        `✅ ${clips.length} ${isAd ? "anuncio(s)" : "clips"} listo(s)`;
+      downloadAll.textContent = "⬇️ Descargar todos (.zip)";
+      downloadAll.href = job.download_url;
+    } else if (isAd) {
+      // Modo anuncio sin render en el servidor: solo el proyecto editable.
       const info = document.createElement("p");
       info.className = "ad-note";
       info.innerHTML =
-        "Descarga el .zip, descomprímelo y ábrelo con Remotion:<br>" +
-        "<code>cd remotion-ad &amp;&amp; npm install &amp;&amp; npm run studio</code><br>" +
-        "Sigue tu <b>PROMPT_EDICION.md</b> (incluido) para rematar el estilo.";
+        "Este servidor no renderizó el video. Descarga el proyecto Remotion:<br>" +
+        "<code>cd remotion-ad &amp;&amp; npm install &amp;&amp; npm run studio</code>";
       clipsGrid.appendChild(info);
+      $("result-title").textContent =
+        `✅ Proyecto Remotion listo (${job.n_videos} video(s))`;
       downloadAll.textContent = "⬇️ Descargar proyecto Remotion (.zip)";
-      downloadAll.href = job.download_url || `/api/jobs/${jobId}/download`;
-      if (job.aviso) { avisoEl.textContent = job.aviso; avisoEl.classList.remove("hidden"); }
-      show(resultCard);
-      return;
+      downloadAll.href = job.download_url;
     }
 
-    downloadAll.textContent = "⬇️ Descargar todos (.zip)";
-    (job.clips || []).forEach((url, i) => {
-      const cell = document.createElement("div");
-      cell.className = "clip-cell";
-      const v = document.createElement("video");
-      v.src = url;
-      v.controls = true;
-      v.playsInline = true;
-      const a = document.createElement("a");
-      a.href = url;
-      a.className = "clip-dl";
-      a.textContent = `⬇️ Clip ${i + 1}`;
-      cell.append(v, a);
-      clipsGrid.append(cell);
-    });
-    $("result-title").textContent = `✅ ${job.clips.length} clips listos`;
-    downloadAll.href = `/api/jobs/${jobId}/download`;
+    // En modo anuncio con video, ofrecemos también el proyecto editable.
+    if (isAd && job.project_url && clips.length) {
+      const pl = document.createElement("a");
+      pl.id = "project-link";
+      pl.className = "download-btn";
+      pl.style.background = "transparent";
+      pl.style.border = "1px solid #39404d";
+      pl.href = job.project_url;
+      pl.textContent = "🛠️ Descargar proyecto Remotion editable (.zip)";
+      downloadAll.insertAdjacentElement("afterend", pl);
+    }
+
     if (job.aviso) {
       avisoEl.textContent = job.aviso;
       avisoEl.classList.remove("hidden");

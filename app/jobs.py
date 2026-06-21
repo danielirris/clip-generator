@@ -28,6 +28,7 @@ from app.pipeline.compose import compose_clips
 from app.pipeline.fragments import VideoSource, build_pool
 from app.pipeline.remotion_export import export_remotion
 from app.pipeline.ad_export import build_ad_project, AdVideo
+from app.pipeline import ad_render
 from app.store import JobStore
 
 logger = logging.getLogger(__name__)
@@ -80,12 +81,16 @@ class Job:
         d["n_videos"] = len(self.filenames)
         done = self.status == JobStatus.DONE
         d["download_ready"] = done
-        # En modo montaje hay previsualización por clip; en modo anuncio, un .zip.
+        # Previsualización por video (clips de montaje o anuncios ya renderizados).
         d["clips"] = (
             [f"/api/jobs/{self.id}/download/{i}" for i in range(1, self.n_clips + 1)]
-            if done and self.mode == "montage" else []
+            if done and self.n_clips > 0 else []
         )
         d["download_url"] = f"/api/jobs/{self.id}/download" if done else None
+        # En modo anuncio, además, el proyecto Remotion editable.
+        d["project_url"] = (
+            f"/api/jobs/{self.id}/project" if done and self.mode == "ad" else None
+        )
         d.pop("output_dir", None)
         return d
 
@@ -412,18 +417,40 @@ class JobManager:
 
             self._update(job_id, status=JobStatus.RENDERING,
                          message="Generando proyecto Remotion (anuncio)")
-            build_ad_project(
+            project_dir = build_ad_project(
                 videos, output_dir,
                 cta_texto=settings.cta_texto, whatsapp=settings.whatsapp_link,
                 vol=settings.musica_volumen, vol_duck=settings.musica_volumen_ducking,
             )
-            # Empaquetar el proyecto en un .zip para descargar.
+
+            # Renderizar el/los video(s) terminados (si hay Node + runtime).
+            aviso = ""
+            n_rendered = 0
+            if settings.renderizar_anuncio and ad_render.render_available():
+                self._update(job_id, status=JobStatus.RENDERING,
+                             message="Renderizando anuncio (Remotion)")
+                try:
+                    rendered = ad_render.render_ad_project(project_dir, output_dir)
+                    n_rendered = len(rendered)
+                except Exception as exc:  # noqa: BLE001 - si falla, deja el proyecto
+                    logger.exception("Render del anuncio falló; se entrega el proyecto.")
+                    aviso = f"No se pudo renderizar el video ({exc}); te dejamos el proyecto editable."
+            else:
+                aviso = ("Este servidor no renderiza video (sin Node); "
+                         "te entregamos el proyecto Remotion editable.")
+
+            # Quitar el symlink de node_modules antes de empaquetar (si no, el zip
+            # arrastraría todo el runtime).
+            link = project_dir / "node_modules"
+            if link.is_symlink():
+                link.unlink()
             shutil.make_archive(str(output_dir / "anuncio-remotion"), "zip",
                                 str(output_dir / "remotion-ad"))
 
             self._update(job_id, status=JobStatus.DONE, message="Completado",
-                         n_clips=len(videos), output_dir=str(output_dir))
-            logger.info("Job %s (anuncio) completado: %d videos", job_id, len(videos))
+                         n_clips=n_rendered, aviso=aviso, output_dir=str(output_dir))
+            logger.info("Job %s (anuncio) completado: %d videos, %d renderizados",
+                        job_id, len(videos), n_rendered)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Fallo en el modo anuncio del job %s", job_id)
             self._update(job_id, status=JobStatus.ERROR,

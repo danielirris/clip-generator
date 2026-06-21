@@ -159,25 +159,35 @@ async def download_clip(job_id: str, n: int) -> FileResponse:
                         filename=f"clip_{job_id}_{n}.mp4")
 
 
+@app.get("/api/jobs/{job_id}/project")
+async def download_project(job_id: str) -> FileResponse:
+    """Descarga el proyecto Remotion editable (.zip) del modo anuncio."""
+    if not manager.get(job_id):
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    ad_zip = manager.ad_zip_path(job_id)
+    if not ad_zip:
+        raise HTTPException(status_code=409, detail="El proyecto aún no está listo")
+    return FileResponse(path=str(ad_zip), media_type="application/zip",
+                        filename=f"anuncio-remotion_{job_id}.zip")
+
+
 @app.get("/api/jobs/{job_id}/download")
 async def download_all(job_id: str):
-    """Descarga el resultado: zip de clips (montaje) o del proyecto Remotion (anuncio)."""
+    """Descarga los videos en un .zip (o el proyecto Remotion si no se renderizó)."""
     job = manager.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job no encontrado")
 
-    # Modo anuncio: devolvemos el .zip del proyecto Remotion ya armado.
-    if job.mode == "ad":
-        ad_zip = manager.ad_zip_path(job_id)
-        if not ad_zip:
-            raise HTTPException(status_code=409, detail="El proyecto aún no está listo")
-        return FileResponse(path=str(ad_zip), media_type="application/zip",
-                            filename=f"anuncio-remotion_{job_id}.zip")
-
     paths = [manager.clip_path(job_id, i) for i in range(1, job.n_clips + 1)]
     paths = [p for p in paths if p]
     if not paths:
-        raise HTTPException(status_code=409, detail="Los clips aún no están listos")
+        # Modo anuncio sin render: entregamos el proyecto Remotion.
+        if job.mode == "ad":
+            ad_zip = manager.ad_zip_path(job_id)
+            if ad_zip:
+                return FileResponse(path=str(ad_zip), media_type="application/zip",
+                                    filename=f"anuncio-remotion_{job_id}.zip")
+        raise HTTPException(status_code=409, detail="El resultado aún no está listo")
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as zf:

@@ -65,9 +65,16 @@ con `npm install && npm run studio`. **Tu prompt de edición se edita una vez en
   **conserva el audio original**, música de fondo con **ducking**, **subtítulos
   sincronizados palabra por palabra** (timestamps reales), **safe-area** con
   auto-ajuste, **intro full-screen** y **CTA final** con botón animado a WhatsApp
-  (sin número, link configurable con `WHATSAPP_LINK`). Se descarga como `.zip`;
-  lo abres con `npm install && npm run studio` y lo afinas/renderizas en Remotion.
-  Verificado: el proyecto **renderiza** a 1080×1920 con subtítulos y CTA.
+  (sin número, link configurable con `WHATSAPP_LINK`). **La app renderiza el video
+  TERMINADO** (mp4 listo para postear) usando un runtime de Remotion, y además te
+  da el **proyecto editable** (`.zip`) por si quieres retocarlo en Remotion Studio.
+  Verificado end-to-end: transcripción por palabra → render a 1080×1920 con
+  subtítulos sincronizados y CTA.
+
+  **Requisito para renderizar:** Node.js + dependencias del runtime
+  (`cd remotion-runtime && npm install`, una sola vez). Si no hay Node (p.ej. en
+  la imagen Docker actual), el modo anuncio degrada con elegancia y entrega solo
+  el proyecto editable (`RENDERIZAR_ANUNCIO=false` para forzar ese comportamiento).
 
 ---
 
