@@ -52,9 +52,9 @@ class JobStore:
         status: str,
         created_at: float,
         sources: list[Path],
-        music: Path | None,
+        music: list[Path],
     ) -> None:
-        """Inserta (o reemplaza) un job recién creado."""
+        """Inserta (o reemplaza) un job recién creado. ``music`` es una lista de pistas."""
         with self._lock:
             self._conn.execute(
                 "INSERT OR REPLACE INTO jobs "
@@ -64,7 +64,7 @@ class JobStore:
                 (
                     id, json.dumps(filenames), status, created_at,
                     json.dumps([str(p) for p in sources]),
-                    str(music) if music else None,
+                    json.dumps([str(p) for p in music]),
                 ),
             )
             self._conn.commit()

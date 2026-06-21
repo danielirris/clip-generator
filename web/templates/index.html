@@ -27,8 +27,9 @@
         <p id="filename" class="filename"></p>
 
         <label for="music" class="music-row">
-          🎵 Música (opcional): el audio original se quita y se usa esta.
-          <input type="file" id="music" name="music" accept=".mp3,.m4a,.wav,.aac,.ogg">
+          🎵 Música (opcional): se quita el audio original y se usa esta. Puedes
+          subir <b>varias pistas</b> — cada clip usará una distinta (rotando).
+          <input type="file" id="music" name="music" accept=".mp3,.m4a,.wav,.aac,.ogg" multiple>
         </label>
 
         <button type="submit" id="submit-btn" disabled>Generar clips</button>

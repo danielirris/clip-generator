@@ -93,7 +93,7 @@ class JobManager:
         self._settings = settings or get_settings()
         self._jobs: dict[str, Job] = {}
         self._sources: dict[str, list[Path]] = {}
-        self._music: dict[str, Path] = {}
+        self._music: dict[str, list[Path]] = {}
         self._lock = threading.Lock()
         self._queue: "queue.Queue[str]" = queue.Queue()
         self._worker = threading.Thread(target=self._run_worker, daemon=True)
@@ -115,7 +115,7 @@ class JobManager:
         for row in self._store.incomplete():
             try:
                 sources = [Path(p) for p in json.loads(row["sources"])]
-                music = Path(row["music"]) if row["music"] else None
+                music = [Path(p) for p in json.loads(row["music"] or "[]")]
                 if not sources or not all(p.exists() for p in sources):
                     self._store.update(row["id"], {
                         "status": JobStatus.ERROR.value, "progress": 100,
@@ -129,7 +129,7 @@ class JobManager:
                     self._jobs[job.id] = job
                     self._sources[job.id] = sources
                     if music:
-                        self._music[job.id] = music
+                        self._music[job.id] = music  # lista de pistas
                 self._store.update(row["id"], {"status": "queued", "progress": 0,
                                                "message": "Reanudado tras reinicio"})
                 self._queue.put(job.id)
@@ -141,13 +141,13 @@ class JobManager:
     def submit(
         self,
         source_tmps: list[tuple[Path, str]],
-        music_tmp: tuple[Path, str] | None = None,
+        music_tmps: list[tuple[Path, str]] | None = None,
     ) -> str:
         """Registra un nuevo job, mueve los uploads a su carpeta y lo encola.
 
         Args:
             source_tmps: lista de (ruta_temporal, nombre_original) de los videos.
-            music_tmp: (ruta_temporal, nombre) de la música opcional del lote.
+            music_tmps: lista de (ruta_temporal, nombre) de las pistas de música.
 
         Returns:
             El ``job_id`` generado.
@@ -166,24 +166,24 @@ class JobManager:
             paths.append(dest)
             filenames.append(name)
 
-        music_path: Path | None = None
-        if music_tmp is not None:
-            mtmp, mname = music_tmp
+        music_paths: list[Path] = []
+        for i, (mtmp, mname) in enumerate(music_tmps or []):
             mext = Path(mname).suffix.lower() or ".mp3"
-            music_path = sources_dir / f"music{mext}"
-            shutil.move(str(mtmp), str(music_path))
+            mdest = sources_dir / f"music_{i:03d}{mext}"
+            shutil.move(str(mtmp), str(mdest))
+            music_paths.append(mdest)
 
         job = Job(id=job_id, filenames=filenames)
         with self._lock:
             self._jobs[job_id] = job
             self._sources[job_id] = paths
-            if music_path is not None:
-                self._music[job_id] = music_path
+            if music_paths:
+                self._music[job_id] = music_paths
         self._store.save(id=job_id, filenames=filenames, status=JobStatus.QUEUED.value,
-                         created_at=job.created_at, sources=paths, music=music_path)
+                         created_at=job.created_at, sources=paths, music=music_paths)
         self._queue.put(job_id)
-        logger.info("Job %s encolado (%d videos, música=%s)",
-                    job_id, len(paths), music_path is not None)
+        logger.info("Job %s encolado (%d videos, %d pistas)",
+                    job_id, len(paths), len(music_paths))
         return job_id
 
     def get(self, job_id: str) -> Job | None:
@@ -313,7 +313,7 @@ class JobManager:
                 job_id, status=JobStatus.RENDERING,
                 message=f"Renderizando {n_clips} clips",
             )
-            music_path = self._music.get(job_id)
+            music_paths = self._music.get(job_id, [])
             video_names = {v.id: v.name for v in videos}
             result = render.render_clips(
                 clips, segments_by_video, video_names, work_dir, output_dir, rng,
@@ -324,7 +324,7 @@ class JobManager:
                 trans_max=settings.trans_max,
                 modo_transicion=settings.modo_transicion,
                 trans_dur=settings.trans_dur_s,
-                music_path=music_path,
+                music_paths=music_paths,
                 threads=settings.ffmpeg_threads,
             )
 
@@ -332,7 +332,7 @@ class JobManager:
             if settings.remotion_export:
                 self._update(job_id, status=JobStatus.RENDERING,
                              message="Exportando proyecto Remotion")
-                export_remotion(output_dir, result, music_path)
+                export_remotion(output_dir, result)
 
             aviso = ""
             if len(pool) < settings.min_fragmentos:

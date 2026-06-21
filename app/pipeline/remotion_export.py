@@ -26,7 +26,6 @@ _PROMPT_SRC = BASE_DIR / "remotion" / "PROMPT_EDICION.md"
 def export_remotion(
     output_dir: Path,
     result: RenderResult,
-    music_path: Path | None,
 ) -> Path:
     """Escribe el proyecto Remotion. Devuelve la carpeta ``remotion/``."""
     root = output_dir / "remotion"
@@ -40,16 +39,17 @@ def export_remotion(
             if src and src.exists():
                 shutil.copy(src, beats_dst / Path(frag["file"]).name)
 
-    # Música.
-    music_name = None
-    if music_path is not None and music_path.exists():
-        music_name = f"music{music_path.suffix.lower()}"
-        shutil.copy(music_path, root / music_name)
+    # Música: copiar todas las pistas (cada clip referencia la suya por nombre).
+    music_names: list[str] = []
+    for m in result.music_paths:
+        if m.exists():
+            shutil.copy(m, root / m.name)
+            music_names.append(m.name)
 
     # timeline.json
     timeline = {
         "width": WIDTH, "height": HEIGHT, "fps": FPS,
-        "music": music_name,
+        "music_tracks": music_names,
         "clips": result.timelines,
     }
     (root / "timeline.json").write_text(
@@ -157,7 +157,7 @@ export const RemotionRoot: React.FC = () => {
           fps={timeline.fps}
           width={timeline.width}
           height={timeline.height}
-          defaultProps={{ clip, music: timeline.music }}
+          defaultProps={{ clip }}
         />
       ))}
     </>
@@ -182,7 +182,8 @@ const presentation = (type: string) => {
   return fade();
 };
 
-export const Clip: React.FC<{ clip: any; music: string | null }> = ({ clip, music }) => {
+export const Clip: React.FC<{ clip: any }> = ({ clip }) => {
+  const music = clip.music; // pista de música de este clip
   const transAfter: Record<number, any> = {};
   for (const t of clip.transitions) transAfter[t.after_fragment] = t;
 

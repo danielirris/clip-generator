@@ -50,6 +50,7 @@ class RenderResult:
     beats_unicos: int = 0
     timelines: list[dict] = field(default_factory=list)
     beat_files: dict = field(default_factory=dict)  # key -> Path del beat normalizado
+    music_paths: list[Path] = field(default_factory=list)  # pistas usadas (para Remotion)
     aviso: str = ""
 
 
@@ -304,7 +305,7 @@ def render_clips(
     trans_max: int,
     modo_transicion: str,
     trans_dur: float,
-    music_path: Path | None,
+    music_paths: list[Path] | None = None,
     threads: int = 1,
 ) -> RenderResult:
     """Renderiza los N clips: beats únicos cacheados, transiciones y música."""
@@ -313,6 +314,7 @@ def render_clips(
     if not clips or not any(clips):
         raise RuntimeError("No hay fragmentos para renderizar.")
 
+    music_paths = music_paths or []
     beats_dir = work_dir / "beats"
     tmp_dir = work_dir / "tmp"
     beats_dir.mkdir(parents=True, exist_ok=True)
@@ -377,29 +379,32 @@ def render_clips(
                 [cache[b.key()] for b in clip], tmp_dir, f"clip_{ci}_full"
             )
 
-        # Música (sustituye el audio). Sin música -> clip sin audio.
+        # Música: una pista distinta por clip (rotando). Sin música -> silencio.
+        music = music_paths[(ci - 1) % len(music_paths)] if music_paths else None
         dest = output_dir / f"clip_{ci}.mp4"
-        if music_path is not None:
-            _run(build_music_cmd(clip_video, music_path, dest), f"música clip {ci}")
+        if music is not None:
+            _run(build_music_cmd(clip_video, music, dest), f"música clip {ci}")
         else:
             _run(["ffmpeg", "-y", "-i", str(clip_video), "-c", "copy",
                   "-movflags", "+faststart", str(dest)], f"export clip {ci}")
         outputs.append(dest)
 
-        # Timeline para Remotion.
+        # Timeline para Remotion (incluye la pista de música de este clip).
         timelines.append(_build_timeline(ci, clip, boundaries, types,
-                                         segments_by_video, video_names, trans_dur))
+                                         segments_by_video, video_names, trans_dur,
+                                         music.name if music else None))
         logger.info("Clip %d/%d listo (%d fragmentos, %d transiciones)",
                     ci, len(clips), len(clip), len(types))
 
     return RenderResult(clips=outputs, beats_unicos=len(cache),
-                        timelines=timelines, beat_files=cache)
+                        timelines=timelines, beat_files=cache,
+                        music_paths=list(music_paths))
 
 
 def _build_timeline(
     index: int, clip: list[Beat], boundaries: list[int], types: list[str],
     segments_by_video: dict[int, list[Segment]], video_names: dict[int, str],
-    trans_dur: float,
+    trans_dur: float, music: str | None = None,
 ) -> dict:
     """Construye la 'receta' de un clip para el proyecto Remotion."""
     frags = []
@@ -420,6 +425,7 @@ def _build_timeline(
     return {
         "index": index,
         "duracion_s": round(duracion, 2),
+        "music": music,
         "fragments": frags,
         "transitions": transitions,
     }

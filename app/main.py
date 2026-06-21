@@ -101,9 +101,9 @@ async def _save_upload(
 @app.post("/api/jobs")
 async def create_job(
     files: list[UploadFile] = File(...),
-    music: UploadFile | None = File(None),
+    music: list[UploadFile] = File(None),
 ) -> JSONResponse:
-    """Recibe uno o varios videos (compendio) y una música opcional; crea un job.
+    """Recibe varios videos (compendio) y varias pistas de música; crea un job.
 
     Returns:
         JSON con el ``job_id``.
@@ -114,22 +114,23 @@ async def create_job(
     settings.ensure_dirs()
     max_bytes = settings.max_upload_mb * 1024 * 1024
     saved: list[tuple[Path, str]] = []
-    music_saved: tuple[Path, str] | None = None
+    music_saved: list[tuple[Path, str]] = []
     try:
         for file in files:
             saved.append(await _save_upload(file, max_bytes))
-        if music is not None and music.filename:
-            music_saved = await _save_upload(music, max_bytes, ALLOWED_AUDIO_EXT)
+        for track in (music or []):
+            if track and track.filename:
+                music_saved.append(await _save_upload(track, max_bytes, ALLOWED_AUDIO_EXT))
     except HTTPException:
         for tmp, _ in saved:
             tmp.unlink(missing_ok=True)
-        if music_saved:
-            music_saved[0].unlink(missing_ok=True)
+        for tmp, _ in music_saved:
+            tmp.unlink(missing_ok=True)
         raise
 
     job_id = manager.submit(saved, music_saved)
     return JSONResponse(
-        {"job_id": job_id, "n_videos": len(saved), "music": music_saved is not None},
+        {"job_id": job_id, "n_videos": len(saved), "music": len(music_saved)},
         status_code=201,
     )
 

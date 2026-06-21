@@ -80,8 +80,7 @@
 
     const data = new FormData();
     for (const f of files) data.append("files", f);
-    const music = $("music").files[0];
-    if (music) data.append("music", music);
+    for (const m of $("music").files) data.append("music", m);
 
     show(progressCard);
     setProgress("queued", 2, "Subiendo videos…");
