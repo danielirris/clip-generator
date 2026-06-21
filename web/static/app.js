@@ -105,25 +105,53 @@
     progressMsg.textContent = msg || "";
   }
 
+  // Tolera cortes de red/luz: no se rinde al primer fallo. Mientras tanto, el
+  // trabajo sigue en el servidor (persistido en SQLite) y se reanuda al volver.
+  const MAX_POLL_FAILS = 90; // ~3 min de cortes tolerados (intervalo 2s)
+  let pollFails = 0;
+
   function poll(jobId) {
     clearInterval(pollTimer);
+    localStorage.setItem("clipgen_job", jobId); // para reanudar tras recargar
+    pollFails = 0;
     pollTimer = setInterval(async () => {
       try {
-        const res = await fetch(`/api/jobs/${jobId}`);
+        const res = await fetch(`/api/jobs/${jobId}`, { cache: "no-store" });
+        if (res.status === 404) {
+          // El servidor responde pero no conoce el trabajo: no insistir.
+          clearInterval(pollTimer);
+          localStorage.removeItem("clipgen_job");
+          showError("No se encontró el trabajo. Vuelve a empezar.");
+          return;
+        }
         if (!res.ok) throw new Error(`Error ${res.status}`);
         const job = await res.json();
+        pollFails = 0;
         setProgress(job.status, job.progress, job.message);
 
         if (job.status === "done") {
           clearInterval(pollTimer);
+          localStorage.removeItem("clipgen_job");
           finish(jobId, job);
         } else if (job.status === "error") {
           clearInterval(pollTimer);
+          localStorage.removeItem("clipgen_job");
           showError(job.error || "Error en el procesamiento");
         }
       } catch (err) {
-        clearInterval(pollTimer);
-        showError(err.message);
+        // Fallo de red (corte de luz/internet): reintentar sin rendirse.
+        pollFails++;
+        if (pollFails >= MAX_POLL_FAILS) {
+          clearInterval(pollTimer);
+          showError(
+            "Se perdió la conexión y no volvió. Tu trabajo sigue en el servidor: " +
+            "recarga esta página para reanudarlo."
+          );
+        } else {
+          statusLabel.textContent = "Reconectando…";
+          progressMsg.textContent =
+            `Conexión interrumpida, reintentando… (${pollFails})`;
+        }
       }
     }, 2000);
   }
@@ -163,11 +191,21 @@
 
   function reset() {
     clearInterval(pollTimer);
+    localStorage.removeItem("clipgen_job");
     form.reset();
     filenameEl.textContent = "";
     submitBtn.disabled = true;
     avisoEl.classList.add("hidden");
     clipsGrid.innerHTML = "";
     show(uploadCard);
+  }
+
+  // Al cargar la página: si había un trabajo en curso (p.ej. se cortó la luz),
+  // reanuda el seguimiento automáticamente.
+  const pending = localStorage.getItem("clipgen_job");
+  if (pending) {
+    show(progressCard);
+    setProgress("queued", 2, "Reanudando trabajo anterior…");
+    poll(pending);
   }
 })();
