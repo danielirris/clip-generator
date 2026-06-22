@@ -15,6 +15,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import BASE_DIR, get_settings
 from app.jobs import manager
+from app import library
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,6 +62,41 @@ async def index(request: Request) -> HTMLResponse:
 async def healthz() -> JSONResponse:
     """Healthcheck para EasyPanel."""
     return JSONResponse({"status": "ok"})
+
+
+@app.get("/config", response_class=HTMLResponse)
+async def config_page(request: Request) -> HTMLResponse:
+    """Página de Configuración: biblioteca de música libre de derechos."""
+    return TEMPLATES.TemplateResponse("config.html", {"request": request})
+
+
+@app.get("/api/library/music")
+async def library_list() -> JSONResponse:
+    """Lista las pistas de la biblioteca de música."""
+    return JSONResponse({"tracks": [p.name for p in library.list_music()]})
+
+
+@app.post("/api/library/music")
+async def library_add(files: list[UploadFile] = File(...)) -> JSONResponse:
+    """Añade una o varias pistas (libres de derechos) a la biblioteca."""
+    settings.ensure_dirs()
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    added = 0
+    for track in files:
+        if not track.filename:
+            continue
+        tmp, name = await _save_upload(track, max_bytes, ALLOWED_AUDIO_EXT)
+        library.save_music(tmp, name)
+        added += 1
+    return JSONResponse({"added": added, "tracks": [p.name for p in library.list_music()]})
+
+
+@app.delete("/api/library/music/{name}")
+async def library_delete(name: str) -> JSONResponse:
+    """Borra una pista de la biblioteca."""
+    if not library.delete_music(name):
+        raise HTTPException(status_code=404, detail="Pista no encontrada")
+    return JSONResponse({"tracks": [p.name for p in library.list_music()]})
 
 
 async def _save_upload(

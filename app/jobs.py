@@ -29,6 +29,7 @@ from app.pipeline.fragments import VideoSource, build_pool
 from app.pipeline.remotion_export import export_remotion
 from app.pipeline.ad_export import build_ad_project, AdVideo
 from app.pipeline import ad_render
+from app import library
 from app.store import JobStore
 
 logger = logging.getLogger(__name__)
@@ -407,7 +408,9 @@ class JobManager:
                     work_dir: Path, output_dir: Path) -> None:
         """Modo anuncio: genera un proyecto Remotion (1 composición por video)."""
         settings = self._settings
-        music_paths = self._music.get(job_id, [])
+        # Música: la del job si la subió; si no, la biblioteca (libre de derechos).
+        music_paths = self._music.get(job_id) or library.list_music()
+        sfx = library.ensure_sfx()  # whoosh/pop/ding generados, sin copyright
         voz = self._voz.get(job_id)  # locución subida para ponerle al video
         # Si hay locución, se transcribe ESA (es el audio que se oirá) una sola vez.
         voz_words = None
@@ -449,6 +452,7 @@ class JobManager:
                 videos, output_dir,
                 cta_texto=settings.cta_texto, whatsapp=settings.whatsapp_link,
                 vol=settings.musica_volumen, vol_duck=settings.musica_volumen_ducking,
+                sfx=sfx,
             )
 
             # Renderizar el/los video(s) terminados (si hay Node + runtime).

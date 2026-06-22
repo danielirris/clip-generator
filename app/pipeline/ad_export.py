@@ -81,14 +81,23 @@ def build_ad_project(
     whatsapp: str,
     vol: float,
     vol_duck: float,
+    sfx: dict[str, Path] | None = None,
 ) -> Path:
     """Escribe el proyecto Remotion del anuncio. Devuelve la carpeta del proyecto."""
     root = output_dir / "remotion-ad"
     public = root / "public"
     audio_dir = public / "audio"
+    sfx_out = audio_dir / "sfx"
     src = root / "src"
-    for d in (public, audio_dir, src):
+    for d in (public, audio_dir, sfx_out, src):
         d.mkdir(parents=True, exist_ok=True)
+
+    # Copiar los SFX (whoosh/pop/ding) al proyecto.
+    sfx_names: dict[str, str] = {}
+    for name, p in (sfx or {}).items():
+        if p and p.exists():
+            shutil.copy(p, sfx_out / p.name)
+            sfx_names[name] = f"audio/sfx/{p.name}"
 
     entries = []
     copied_music: dict[str, str] = {}
@@ -121,12 +130,14 @@ def build_ad_project(
             "voz": voz_name,
             "words": [w.to_dict() for w in v.words],
             "highlight": _pick_highlight(v.words, v.duration),
+            "lineStarts": [round(l[0].start, 3) for l in _lines_from_words(v.words)],
         })
 
     ad = {
         "fps": FPS,
         "cta": {"texto": cta_texto, "whatsapp": whatsapp},
         "musica": {"volumen": vol, "ducking": vol_duck},
+        "sfx": sfx_names,
         "videos": entries,
     }
     (root / "ad.json").write_text(json.dumps(ad, ensure_ascii=False, indent=2),
@@ -180,7 +191,7 @@ export const RemotionRoot: React.FC = () => {
           fps={ad.fps}
           width={v.width}
           height={v.height}
-          defaultProps={{ v, cta: ad.cta, musica: ad.musica }}
+          defaultProps={{ v, cta: ad.cta, musica: ad.musica, sfx: ad.sfx }}
         />
       ))}
     </>
@@ -191,7 +202,7 @@ export const RemotionRoot: React.FC = () => {
 _AD_TSX = """\
 import React from 'react';
 import {
-  AbsoluteFill, Audio, Video, staticFile, useCurrentFrame, useVideoConfig,
+  AbsoluteFill, Audio, Sequence, Video, staticFile, useCurrentFrame, useVideoConfig,
 } from 'remotion';
 import { Subtitles } from './Subtitles';
 import { Cta } from './Cta';
@@ -199,7 +210,7 @@ import { Intro } from './Intro';
 import { Highlight } from './Highlight';
 
 // Anuncio de un video. Mantiene SIEMPRE el audio original (<Video> lo incluye).
-export const Ad: React.FC<{ v: any; cta: any; musica: any }> = ({ v, cta, musica }) => {
+export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any }> = ({ v, cta, musica, sfx }) => {
   const { fps, durationInFrames } = useVideoConfig();
   const frame = useCurrentFrame();
 
@@ -232,6 +243,34 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any }> = ({ v, cta, musica
           loop
           volume={(f) => (isSpeaking(f) ? musica.ducking : musica.volumen)}
         />
+      ) : null}
+
+      {/* SFX (con moderación): whoosh en los momentos full-screen, pop en la
+          aparición de cada línea de subtítulo, ding en el CTA. */}
+      {sfx && sfx.whoosh ? (
+        <>
+          <Sequence from={0} durationInFrames={Math.round(0.6 * fps)}>
+            <Audio src={staticFile(sfx.whoosh)} volume={0.5} />
+          </Sequence>
+          {hl ? (
+            <Sequence from={hlStart} durationInFrames={Math.round(0.6 * fps)}>
+              <Audio src={staticFile(sfx.whoosh)} volume={0.5} />
+            </Sequence>
+          ) : null}
+          <Sequence from={ctaStart} durationInFrames={Math.round(0.6 * fps)}>
+            <Audio src={staticFile(sfx.whoosh)} volume={0.55} />
+          </Sequence>
+        </>
+      ) : null}
+      {sfx && sfx.pop ? (v.lineStarts || []).map((s: number, i: number) => (
+        <Sequence key={`pop${i}`} from={Math.round(s * fps)} durationInFrames={Math.round(0.18 * fps)}>
+          <Audio src={staticFile(sfx.pop)} volume={0.3} />
+        </Sequence>
+      )) : null}
+      {sfx && sfx.ding ? (
+        <Sequence from={ctaStart + Math.round(0.18 * fps)} durationInFrames={Math.round(0.7 * fps)}>
+          <Audio src={staticFile(sfx.ding)} volume={0.5} />
+        </Sequence>
       ) : null}
 
       {/* Subtítulos sincronizados (se ocultan durante los momentos full-screen). */}
