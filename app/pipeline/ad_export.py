@@ -1,11 +1,12 @@
 """Modo anuncio: genera un proyecto Remotion por compendio (1 composición/video).
 
 Aplica los lineamientos de edición del usuario de forma determinista:
-  - Conserva el audio original del video.
+  - Conserva el audio original del video (la locución que trae).
   - Música de fondo a volumen bajo con ducking cuando habla la voz.
-  - Subtítulos sincronizados (palabra/línea) con timestamps reales.
+  - Subtítulos sincronizados palabra por palabra con timestamps reales.
   - Texto dentro de safe-area (auto-ajuste), sin cinta amarilla ni barra de progreso.
-  - Momento full-screen de intro + CTA final con botón animado a WhatsApp.
+  - VARIAS animaciones a pantalla completa: intro (gancho) + un momento clave a
+    media reproducción + CTA final con botón animado a WhatsApp.
 El proyecto queda listo para abrir en Remotion Studio y afinar/renderizar.
 """
 from __future__ import annotations
@@ -37,6 +38,38 @@ class AdVideo:
     duration: float
     words: list[Word] = field(default_factory=list)
     music: Path | None = None
+
+
+# --------------------------------------------------------------------------- #
+# Cálculo de líneas de subtítulo y del momento full-screen
+# --------------------------------------------------------------------------- #
+def _lines_from_words(words: list[Word]) -> list[list[Word]]:
+    """Agrupa palabras en líneas cortas (por pausas o máx. 5 palabras)."""
+    lines: list[list[Word]] = []
+    cur: list[Word] = []
+    for i, w in enumerate(words):
+        gap = w.start - words[i - 1].end if i > 0 else 0.0
+        if cur and (len(cur) >= 5 or gap > 0.6):
+            lines.append(cur)
+            cur = []
+        cur.append(w)
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def _pick_highlight(words: list[Word], duration: float,
+                    intro_s: float = 1.6, cta_s: float = 3.0) -> dict | None:
+    """Elige una frase clave cerca de la mitad para la animación full-screen."""
+    lines = _lines_from_words(words)
+    if not lines:
+        return None
+    mid = duration / 2
+    cands = [l for l in lines
+             if l[0].start >= intro_s and l[-1].end <= max(intro_s, duration - cta_s)]
+    pool = cands or lines
+    best = min(pool, key=lambda l: abs(((l[0].start + l[-1].end) / 2) - mid))
+    return {"text": " ".join(w.word for w in best), "start": round(best[0].start, 3)}
 
 
 def build_ad_project(
@@ -80,6 +113,7 @@ def build_ad_project(
             "duration": round(v.duration, 3),
             "music": music_name,
             "words": [w.to_dict() for w in v.words],
+            "highlight": _pick_highlight(v.words, v.duration),
         })
 
     ad = {
@@ -91,13 +125,13 @@ def build_ad_project(
     (root / "ad.json").write_text(json.dumps(ad, ensure_ascii=False, indent=2),
                                   encoding="utf-8")
 
-    # Código + scaffolding.
     (src / "index.ts").write_text(_INDEX_TS, encoding="utf-8")
     (src / "Root.tsx").write_text(_ROOT_TSX, encoding="utf-8")
     (src / "Ad.tsx").write_text(_AD_TSX, encoding="utf-8")
     (src / "Subtitles.tsx").write_text(_SUBTITLES_TSX, encoding="utf-8")
     (src / "Cta.tsx").write_text(_CTA_TSX, encoding="utf-8")
     (src / "Intro.tsx").write_text(_INTRO_TSX, encoding="utf-8")
+    (src / "Highlight.tsx").write_text(_HIGHLIGHT_TSX, encoding="utf-8")
     (root / "package.json").write_text(_PACKAGE_JSON, encoding="utf-8")
     (root / "tsconfig.json").write_text(_TSCONFIG, encoding="utf-8")
     (root / "remotion.config.ts").write_text(_REMOTION_CONFIG, encoding="utf-8")
@@ -125,8 +159,8 @@ import { Composition } from 'remotion';
 import ad from '../ad.json';
 import { Ad } from './Ad';
 
-// Una composición por video del compendio. Cada una conserva su audio original,
-// sus subtítulos sincronizados, su música con ducking y el CTA final.
+// Una composición por video. Cada una conserva su audio, subtítulos sincronizados,
+// música con ducking, momentos full-screen y CTA final.
 export const RemotionRoot: React.FC = () => {
   return (
     <>
@@ -155,15 +189,22 @@ import {
 import { Subtitles } from './Subtitles';
 import { Cta } from './Cta';
 import { Intro } from './Intro';
+import { Highlight } from './Highlight';
 
 // Anuncio de un video. Mantiene SIEMPRE el audio original (<Video> lo incluye).
 export const Ad: React.FC<{ v: any; cta: any; musica: any }> = ({ v, cta, musica }) => {
   const { fps, durationInFrames } = useVideoConfig();
   const frame = useCurrentFrame();
 
-  const introFrames = Math.round(1.4 * fps);            // intro full-screen
-  const ctaFrames = Math.round(3 * fps);                // CTA final
+  const introFrames = Math.round(1.6 * fps);
+  const ctaFrames = Math.round(3 * fps);
   const ctaStart = durationInFrames - ctaFrames;
+
+  // Momento full-screen a media reproducción (rompe el ritmo).
+  const hl = v.highlight;
+  const hlDur = Math.round(1.3 * fps);
+  const hlStart = hl ? Math.round(hl.start * fps) : -1;
+  const hlOn = hl && frame >= hlStart && frame < hlStart + hlDur;
 
   // Ducking: la música baja mientras hay una palabra sonando (sincronía real).
   const isSpeaking = (f: number) =>
@@ -181,13 +222,18 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any }> = ({ v, cta, musica
         />
       ) : null}
 
-      {/* Subtítulos sincronizados con los timestamps reales. */}
-      <Subtitles words={v.words} />
+      {/* Subtítulos sincronizados (se ocultan durante los momentos full-screen). */}
+      {!hlOn && frame >= introFrames && frame < ctaStart ? (
+        <Subtitles words={v.words} />
+      ) : null}
 
-      {/* Momento full-screen #1: intro breve. */}
+      {/* Full-screen #1: intro con el gancho. */}
       {frame < introFrames ? <Intro words={v.words} /> : null}
 
-      {/* Momento full-screen #2: CTA final con botón a WhatsApp. */}
+      {/* Full-screen #2: frase clave a media reproducción. */}
+      {hlOn ? <Highlight text={hl.text} startFrame={hlStart} /> : null}
+
+      {/* Full-screen #3: CTA final con botón a WhatsApp. */}
       {frame >= ctaStart ? (
         <Cta texto={cta.texto} whatsapp={cta.whatsapp} startFrame={ctaStart} />
       ) : null}
@@ -201,7 +247,7 @@ import React, { useMemo } from 'react';
 import { useCurrentFrame, useVideoConfig, spring } from 'remotion';
 
 // Subtítulos por líneas cortas, resaltando la palabra activa. Dentro de safe-area
-// (margen 10%) y con auto-ajuste para que NUNCA se salga del cuadro.
+// (margen ~8%) y con auto-ajuste para que NUNCA se salga del cuadro.
 type W = { word: string; start: number; end: number };
 
 function buildLines(words: W[]): W[][] {
@@ -211,8 +257,8 @@ function buildLines(words: W[]): W[][] {
     const w = words[i];
     const prev = words[i - 1];
     const gap = prev ? w.start - prev.end : 0;
-    if (cur.length >= 5 || gap > 0.6) {
-      if (cur.length) lines.push(cur);
+    if (cur.length && (cur.length >= 5 || gap > 0.6)) {
+      lines.push(cur);
       cur = [];
     }
     cur.push(w);
@@ -231,22 +277,23 @@ export const Subtitles: React.FC<{ words: W[] }> = ({ words }) => {
   if (!line) return null;
 
   const activeIdx = line.findIndex((w) => t >= w.start && t < w.end);
-  // Tamaño de fuente adaptativo según el ancho del cuadro (auto-fit básico).
-  const fontSize = Math.round(width * 0.062);
+  const fontSize = Math.round(width * 0.07);
 
   return (
     <div
       style={{
         position: 'absolute',
-        left: '8%', right: '8%', bottom: '14%',          // safe-area
-        display: 'flex', flexWrap: 'wrap', gap: '0 0.35em',
-        justifyContent: 'center', alignItems: 'center',
-        textAlign: 'center',
+        left: '8%', right: '8%', bottom: '15%',          // safe-area
+        display: 'flex', flexWrap: 'wrap', gap: '0.08em 0.32em',
+        justifyContent: 'center', alignItems: 'center', textAlign: 'center',
       }}
     >
       {line.map((w, i) => {
         const active = i === activeIdx;
-        const appear = spring({ frame: frame - Math.round(w.start * fps), fps, config: { damping: 200 } });
+        const pop = spring({
+          frame: frame - Math.round(w.start * fps), fps,
+          config: { damping: 14, mass: 0.5 },
+        });
         return (
           <span
             key={i}
@@ -254,13 +301,14 @@ export const Subtitles: React.FC<{ words: W[] }> = ({ words }) => {
               fontFamily: 'Arial, Helvetica, sans-serif',
               fontWeight: 900,
               fontSize,
-              lineHeight: 1.15,
-              color: active ? '#FFE600' : '#FFFFFF',
+              lineHeight: 1.1,
+              color: active ? '#FFD400' : '#FFFFFF',
               WebkitTextStroke: `${Math.max(2, fontSize * 0.06)}px #000`,
               paintOrder: 'stroke fill',
-              textShadow: '0 4px 14px rgba(0,0,0,0.55)',
-              transform: `scale(${0.8 + 0.2 * appear})`,
-              opacity: appear,
+              textShadow: '0 6px 18px rgba(0,0,0,0.6)',
+              transform: `translateY(${(1 - Math.min(1, pop)) * 14}px) scale(${0.86 + 0.14 * Math.min(1, pop)})`,
+              opacity: Math.min(1, pop),
+              display: 'inline-block',
             }}
           >
             {w.word}
@@ -273,25 +321,73 @@ export const Subtitles: React.FC<{ words: W[] }> = ({ words }) => {
 """
 
 _INTRO_TSX = """\
-import React from 'react';
-import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
+import React, { useMemo } from 'react';
+import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 
-// Intro full-screen breve: primeras palabras como gancho. Reemplázala por tu
-// branding (logo/hook) siguiendo PROMPT_EDICION.md.
-export const Intro: React.FC<{ words: { word: string }[] }> = ({ words }) => {
+// Intro full-screen: primera frase como gancho, con entrada animada.
+// Reemplázala por tu branding (logo/hook) siguiendo PROMPT_EDICION.md.
+type W = { word: string; start: number; end: number };
+
+export const Intro: React.FC<{ words: W[] }> = ({ words }) => {
   const { fps, width } = useVideoConfig();
   const frame = useCurrentFrame();
-  const hook = (words || []).slice(0, 4).map((w) => w.word).join(' ') || 'AHORA';
-  const o = interpolate(frame, [0, 6, fps * 1.2, fps * 1.4], [0, 1, 1, 0], {
+
+  const hook = useMemo(() => {
+    const w = words || [];
+    if (!w.length) return 'AHORA';
+    // primeras ~5 palabras o hasta la primera pausa
+    const out: string[] = [];
+    for (let i = 0; i < w.length && out.length < 5; i++) {
+      out.push(w[i].word);
+      if (i + 1 < w.length && w[i + 1].start - w[i].end > 0.6) break;
+    }
+    return out.join(' ');
+  }, [words]);
+
+  const enter = spring({ frame, fps, config: { damping: 18, mass: 0.6 } });
+  const o = interpolate(frame, [0, 6, fps * 1.3, fps * 1.6], [0, 1, 1, 0], {
     extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
   });
+
   return (
-    <AbsoluteFill style={{ backgroundColor: 'rgba(0,0,0,0.82)', justifyContent: 'center', alignItems: 'center', opacity: o }}>
+    <AbsoluteFill style={{ backgroundColor: `rgba(8,8,12,${0.86 * o})`, justifyContent: 'center', alignItems: 'center' }}>
       <div style={{
-        margin: '0 8%', textAlign: 'center', color: '#fff', fontFamily: 'Arial, sans-serif',
-        fontWeight: 900, fontSize: Math.round(width * 0.09), lineHeight: 1.1,
+        margin: '0 8%', textAlign: 'center', opacity: o,
+        transform: `translateY(${(1 - enter) * 40}px) scale(${0.9 + 0.1 * enter})`,
+        color: '#fff', fontFamily: 'Arial, sans-serif', fontWeight: 900,
+        fontSize: Math.round(width * 0.092), lineHeight: 1.08,
         WebkitTextStroke: '3px #000', paintOrder: 'stroke fill',
       }}>{hook}</div>
+    </AbsoluteFill>
+  );
+};
+"""
+
+_HIGHLIGHT_TSX = """\
+import React from 'react';
+import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+
+// Momento full-screen a media reproducción: una frase clave grande que rompe el
+// ritmo y capta atención. Entra y sale en ~1.3s.
+export const Highlight: React.FC<{ text: string; startFrame: number }> = ({ text, startFrame }) => {
+  const { fps, width } = useVideoConfig();
+  const f = useCurrentFrame() - startFrame;
+  const total = Math.round(1.3 * fps);
+  const enter = spring({ frame: f, fps, config: { damping: 16, mass: 0.6 } });
+  const out = interpolate(f, [total - 7, total], [1, 0], {
+    extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
+  });
+  const o = Math.min(enter, out);
+
+  return (
+    <AbsoluteFill style={{ backgroundColor: `rgba(10,10,14,${0.93 * o})`, justifyContent: 'center', alignItems: 'center' }}>
+      <div style={{
+        margin: '0 8%', textAlign: 'center', opacity: o,
+        transform: `scale(${0.82 + 0.18 * enter})`,
+        color: '#fff', fontFamily: 'Arial, sans-serif', fontWeight: 900,
+        fontSize: Math.round(width * 0.088), lineHeight: 1.1,
+        WebkitTextStroke: '3px #000', paintOrder: 'stroke fill',
+      }}>{text}</div>
     </AbsoluteFill>
   );
 };
@@ -308,14 +404,14 @@ export const Cta: React.FC<{ texto: string; whatsapp: string; startFrame: number
   const f = frame - startFrame;
   const enter = spring({ frame: f, fps, config: { damping: 200 } });
   const pulse = 1 + 0.04 * Math.sin((f / fps) * 6);
-  const bg = interpolate(enter, [0, 1], [0, 0.85]);
+  const bg = interpolate(enter, [0, 1], [0, 0.88]);
 
   return (
     <AbsoluteFill style={{ backgroundColor: `rgba(0,0,0,${bg})`, justifyContent: 'center', alignItems: 'center' }}>
       <div style={{ margin: '0 8%', textAlign: 'center', transform: `translateY(${(1 - enter) * 60}px)`, opacity: enter }}>
         <div style={{
           color: '#fff', fontFamily: 'Arial, sans-serif', fontWeight: 900,
-          fontSize: Math.round(width * 0.075), lineHeight: 1.15,
+          fontSize: Math.round(width * 0.078), lineHeight: 1.15,
           WebkitTextStroke: '3px #000', paintOrder: 'stroke fill', marginBottom: 40,
         }}>{texto}</div>
         <a href={whatsapp} style={{ textDecoration: 'none' }}>
@@ -378,14 +474,15 @@ _README = """\
 # Anuncio (Remotion) — generado por clip-generator
 
 Proyecto listo para editar/renderizar tus anuncios siguiendo `PROMPT_EDICION.md`.
-Cada video del compendio es una composición `anuncio-<id>`.
+Cada video es una composición `anuncio-<id>`.
 
 ## Qué incluye (ya cableado)
-- **Audio original conservado** + música de fondo con **ducking** (baja cuando hay voz).
-- **Subtítulos sincronizados** con los timestamps reales (resaltan la palabra activa).
-- **Safe-area** (margen 8-10%) y auto-ajuste de tamaño para que el texto no se salga.
-- **Intro full-screen** + **CTA final** con botón animado a WhatsApp (sin número).
-- Datos en `ad.json` (incluye las palabras con tiempos de cada video).
+- **Audio original conservado** + música de fondo con **ducking**.
+- **Subtítulos sincronizados** palabra por palabra (resaltan la palabra activa).
+- **Safe-area** (margen ~8%) y auto-ajuste de tamaño.
+- **3 momentos full-screen**: intro (gancho), una frase clave a media reproducción,
+  y el CTA final con botón animado a WhatsApp (sin número).
+- Datos en `ad.json` (palabras con tiempos + la frase clave de cada video).
 
 ## Cómo abrir
 ```bash
@@ -394,16 +491,15 @@ npm install
 npm run studio          # previsualiza y edita en Remotion Studio
 ```
 
-## Renderizar un anuncio
+## Renderizar
 ```bash
 npx remotion render anuncio-0 out/anuncio-0.mp4
 ```
 
 ## Para afinar (siguiendo PROMPT_EDICION.md)
-- Cambia el link de WhatsApp y el texto del CTA en `ad.json` (`cta`).
-- Sustituye `src/Intro.tsx` por tu branding (logo/hook).
-- Añade tus **SFX** (whoosh/pop/ding) en `public/audio` y dispáralos en las
-  transiciones desde `src/Ad.tsx`.
-- Las animaciones por palabra clave y el momento full-screen "fuerte" son el
-  punto donde tú (o una IA con el prompt) ponéis el toque creativo.
+- Link de WhatsApp y texto del CTA: en `ad.json` (`cta`).
+- Tu branding/logo en la intro: `src/Intro.tsx`.
+- SFX (whoosh/pop/ding) en `public/audio`, dispáralos desde `src/Ad.tsx`.
+- La frase clave full-screen se elige automática (cercana a la mitad); cámbiala
+  en `ad.json` (`videos[i].highlight`) o en `src/Ad.tsx`.
 """
