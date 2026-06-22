@@ -103,6 +103,7 @@ class JobManager:
         self._jobs: dict[str, Job] = {}
         self._sources: dict[str, list[Path]] = {}
         self._music: dict[str, list[Path]] = {}
+        self._voz: dict[str, Path] = {}
         self._lock = threading.Lock()
         self._queue: "queue.Queue[str]" = queue.Queue()
         self._worker = threading.Thread(target=self._run_worker, daemon=True)
@@ -125,6 +126,7 @@ class JobManager:
             try:
                 sources = [Path(p) for p in json.loads(row["sources"])]
                 music = [Path(p) for p in json.loads(row["music"] or "[]")]
+                voz = Path(row["voz"]) if row["voz"] else None
                 if not sources or not all(p.exists() for p in sources):
                     self._store.update(row["id"], {
                         "status": JobStatus.ERROR.value, "progress": 100,
@@ -139,6 +141,8 @@ class JobManager:
                     self._sources[job.id] = sources
                     if music:
                         self._music[job.id] = music  # lista de pistas
+                    if voz:
+                        self._voz[job.id] = voz
                 self._store.update(row["id"], {"status": "queued", "progress": 0,
                                                "message": "Reanudado tras reinicio"})
                 self._queue.put(job.id)
@@ -152,6 +156,7 @@ class JobManager:
         source_tmps: list[tuple[Path, str]],
         music_tmps: list[tuple[Path, str]] | None = None,
         mode: str = "montage",
+        voz_tmp: tuple[Path, str] | None = None,
     ) -> str:
         """Registra un nuevo job, mueve los uploads a su carpeta y lo encola.
 
@@ -183,15 +188,24 @@ class JobManager:
             shutil.move(str(mtmp), str(mdest))
             music_paths.append(mdest)
 
+        voz_path: Path | None = None
+        if voz_tmp is not None:
+            vtmp, vname = voz_tmp
+            vext = Path(vname).suffix.lower() or ".mp3"
+            voz_path = sources_dir / f"voz{vext}"
+            shutil.move(str(vtmp), str(voz_path))
+
         job = Job(id=job_id, filenames=filenames, mode=mode)
         with self._lock:
             self._jobs[job_id] = job
             self._sources[job_id] = paths
             if music_paths:
                 self._music[job_id] = music_paths
+            if voz_path is not None:
+                self._voz[job_id] = voz_path
         self._store.save(id=job_id, filenames=filenames, status=JobStatus.QUEUED.value,
                          created_at=job.created_at, sources=paths, music=music_paths,
-                         mode=mode)
+                         mode=mode, voz=voz_path)
         self._queue.put(job_id)
         logger.info("Job %s encolado (modo=%s, %d videos, %d pistas)",
                     job_id, mode, len(paths), len(music_paths))
@@ -386,6 +400,7 @@ class JobManager:
             with self._lock:
                 self._sources.pop(job_id, None)
                 self._music.pop(job_id, None)
+                self._voz.pop(job_id, None)
             cleanup.purge_old_outputs(settings.outputs_dir, settings.retencion_horas)
 
     def _process_ad(self, job_id: str, sources: list[Path],
@@ -393,26 +408,39 @@ class JobManager:
         """Modo anuncio: genera un proyecto Remotion (1 composición por video)."""
         settings = self._settings
         music_paths = self._music.get(job_id, [])
+        voz = self._voz.get(job_id)  # locución subida para ponerle al video
+        # Si hay locución, se transcribe ESA (es el audio que se oirá) una sola vez.
+        voz_words = None
+        voz_dur = 0.0
+        if voz is not None:
+            self._update(job_id, status=JobStatus.TRANSCRIBING,
+                         message="Transcribiendo la locución")
+            voz_dur = audio.probe_duration(voz)
+            voz_words = transcribe.transcribe_words(voz)
         try:
             videos: list[AdVideo] = []
             for vid, src in enumerate(sources):
-                self._update(job_id, status=JobStatus.EXTRACTING,
-                             message=f"Procesando audio {vid + 1}/{len(sources)}")
-                duration = audio.probe_duration(src)
                 width, height = audio.probe_resolution(src)
-                audio_path = work_dir / f"audio_{vid:03d}.wav"
-                audio.extract_audio(src, audio_path)
-
-                self._update(job_id, status=JobStatus.TRANSCRIBING,
-                             message=f"Transcribiendo (palabras) {vid + 1}/{len(sources)}")
-                words = transcribe.transcribe_words(audio_path)
-                audio_path.unlink(missing_ok=True)
+                if voz is not None:
+                    # La locución manda: dura lo que la voz y el video se repite.
+                    words = voz_words or []
+                    duration = voz_dur or audio.probe_duration(src)
+                else:
+                    self._update(job_id, status=JobStatus.EXTRACTING,
+                                 message=f"Procesando audio {vid + 1}/{len(sources)}")
+                    duration = audio.probe_duration(src)
+                    audio_path = work_dir / f"audio_{vid:03d}.wav"
+                    audio.extract_audio(src, audio_path)
+                    self._update(job_id, status=JobStatus.TRANSCRIBING,
+                                 message=f"Transcribiendo (palabras) {vid + 1}/{len(sources)}")
+                    words = transcribe.transcribe_words(audio_path)
+                    audio_path.unlink(missing_ok=True)
 
                 music = music_paths[vid % len(music_paths)] if music_paths else None
                 videos.append(AdVideo(
                     id=vid, path=src, name=self.get(job_id).filenames[vid],
                     width=width, height=height, duration=duration,
-                    words=words, music=music,
+                    words=words, music=music, voz=voz,
                 ))
 
             self._update(job_id, status=JobStatus.RENDERING,
@@ -460,6 +488,7 @@ class JobManager:
             with self._lock:
                 self._sources.pop(job_id, None)
                 self._music.pop(job_id, None)
+                self._voz.pop(job_id, None)
             cleanup.purge_old_outputs(settings.outputs_dir, settings.retencion_horas)
 
 

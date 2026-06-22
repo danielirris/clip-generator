@@ -38,6 +38,7 @@ class AdVideo:
     duration: float
     words: list[Word] = field(default_factory=list)
     music: Path | None = None
+    voz: Path | None = None   # audio/locución a ponerle al video (modo Apartado 2)
 
 
 # --------------------------------------------------------------------------- #
@@ -95,6 +96,11 @@ def build_ad_project(
         video_name = f"video_{v.id:03d}{v.path.suffix.lower() or '.mp4'}"
         shutil.copy(v.path, public / video_name)
 
+        voz_name = None
+        if v.voz is not None and v.voz.exists():
+            voz_name = f"voz_{v.id:03d}{v.voz.suffix.lower() or '.mp3'}"
+            shutil.copy(v.voz, public / voz_name)
+
         music_name = None
         if v.music is not None and v.music.exists():
             key = v.music.name
@@ -112,6 +118,7 @@ def build_ad_project(
             "height": v.height,
             "duration": round(v.duration, 3),
             "music": music_name,
+            "voz": voz_name,
             "words": [w.to_dict() for w in v.words],
             "highlight": _pick_highlight(v.words, v.duration),
         })
@@ -210,9 +217,14 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any }> = ({ v, cta, musica
   const isSpeaking = (f: number) =>
     v.words.some((w: any) => f / fps >= w.start && f / fps < w.end);
 
+  const hasVoz = !!v.voz;
+
   return (
     <AbsoluteFill style={{ backgroundColor: 'black' }}>
-      <Video src={staticFile(v.video)} />
+      {/* Si hay locución subida, el video se silencia y se repite para cubrir
+          toda la narración; si no, el video conserva su propio audio. */}
+      <Video src={staticFile(v.video)} muted={hasVoz} loop={hasVoz} />
+      {hasVoz ? <Audio src={staticFile(v.voz)} /> : null}
 
       {v.music ? (
         <Audio

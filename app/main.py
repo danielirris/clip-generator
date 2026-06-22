@@ -102,6 +102,7 @@ async def _save_upload(
 async def create_job(
     files: list[UploadFile] = File(...),
     music: list[UploadFile] = File(None),
+    voz: UploadFile | None = File(None),
     mode: str = Form("montage"),
 ) -> JSONResponse:
     """Recibe varios videos (compendio) y varias pistas de música; crea un job.
@@ -118,22 +119,28 @@ async def create_job(
     max_bytes = settings.max_upload_mb * 1024 * 1024
     saved: list[tuple[Path, str]] = []
     music_saved: list[tuple[Path, str]] = []
+    voz_saved: tuple[Path, str] | None = None
     try:
         for file in files:
             saved.append(await _save_upload(file, max_bytes))
         for track in (music or []):
             if track and track.filename:
                 music_saved.append(await _save_upload(track, max_bytes, ALLOWED_AUDIO_EXT))
+        if voz is not None and voz.filename:
+            voz_saved = await _save_upload(voz, max_bytes, ALLOWED_AUDIO_EXT)
     except HTTPException:
         for tmp, _ in saved:
             tmp.unlink(missing_ok=True)
         for tmp, _ in music_saved:
             tmp.unlink(missing_ok=True)
+        if voz_saved:
+            voz_saved[0].unlink(missing_ok=True)
         raise
 
-    job_id = manager.submit(saved, music_saved, mode)
+    job_id = manager.submit(saved, music_saved, mode, voz_saved)
     return JSONResponse(
-        {"job_id": job_id, "n_videos": len(saved), "music": len(music_saved), "mode": mode},
+        {"job_id": job_id, "n_videos": len(saved), "music": len(music_saved),
+         "voz": voz_saved is not None, "mode": mode},
         status_code=201,
     )
 

@@ -38,9 +38,16 @@
         </label>
         <p id="filename" class="filename"></p>
 
-        <label for="music" class="music-row">
-          🎵 Música (opcional): se quita el audio original y se usa esta. Puedes
-          subir <b>varias pistas</b> — cada clip usará una distinta (rotando).
+        <label for="voz" class="music-row" id="voz-row" style="display:none">
+          🎙️ <b>Locución / audio (Apartado 2):</b> opcional. Se le pone al video
+          (el video se silencia y se repite para cubrir la voz) y de esa voz salen
+          los subtítulos sincronizados.
+          <input type="file" id="voz" name="voz" accept=".mp3,.m4a,.wav,.aac,.ogg">
+        </label>
+
+        <label for="music" class="music-row" id="music-row">
+          🎵 <b>Música de fondo</b> (opcional): <span id="music-hint">en Recortes se
+          quita el audio original y se usa esta (varias pistas = una por clip).</span>
           <input type="file" id="music" name="music" accept=".mp3,.m4a,.wav,.aac,.ogg" multiple>
         </label>
 

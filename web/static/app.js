@@ -83,6 +83,8 @@
     for (const m of $("music").files) data.append("music", m);
     const mode = document.querySelector('input[name="mode"]:checked').value;
     data.append("mode", mode);
+    const voz = $("voz").files[0];
+    if (voz) data.append("voz", voz);
 
     show(progressCard);
     setProgress("queued", 2, "Subiendo videos…");
@@ -236,6 +238,20 @@
     clipsGrid.innerHTML = "";
     show(uploadCard);
   }
+
+  // Mostrar el campo de locución solo en el Apartado 2 (Edición Remotion).
+  function syncModeUI() {
+    const mode = document.querySelector('input[name="mode"]:checked').value;
+    $("voz-row").style.display = mode === "ad" ? "block" : "none";
+    $("music-hint").textContent =
+      mode === "ad"
+        ? "música por debajo de la voz (con ducking automático)."
+        : "en Recortes se quita el audio original y se usa esta (varias pistas = una por clip).";
+  }
+  document.querySelectorAll('input[name="mode"]').forEach((r) =>
+    r.addEventListener("change", syncModeUI)
+  );
+  syncModeUI();
 
   // Al cargar la página: si había un trabajo en curso (p.ej. se cortó la luz),
   // reanuda el seguimiento automáticamente.
