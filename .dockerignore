@@ -9,6 +9,12 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+# node_modules del host (binarios de macOS): la imagen los reinstala para Linux
+node_modules/
+**/node_modules/
+remotion-runtime/node_modules/
+# FFmpeg local con libass (binario macOS): la imagen usa el de apt
+bin/
 *.md
 *.mp4
 *.mov
