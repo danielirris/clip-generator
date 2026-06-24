@@ -1,0 +1,15 @@
+{
+  "name": "preview-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs" },
+  "dependencies": {
+    "@remotion/google-fonts": "^4.0.0",
+    "@remotion/player": "^4.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": { "esbuild": "^0.21.5" }
+}

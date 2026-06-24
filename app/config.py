@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     musica_volumen: float = 0.18  # volumen base de la música (0-1)
     musica_volumen_ducking: float = 0.08  # volumen mientras habla la voz
     renderizar_anuncio: bool = True  # renderizar el mp4 final si hay Node + runtime
+    preview_first: bool = True       # modo anuncio: previsualizar antes de renderizar
 
     # --- Semilla para variar cortes/transiciones de forma reproducible ---
     seed: int = 1234

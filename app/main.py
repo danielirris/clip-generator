@@ -218,6 +218,42 @@ async def download_clip(job_id: str, n: int) -> FileResponse:
                         filename=f"clip_{job_id}_{n}.mp4")
 
 
+@app.get("/preview/{job_id}", response_class=HTMLResponse)
+async def preview_page(request: Request, job_id: str) -> HTMLResponse:
+    """Previsualización en vivo del anuncio (Remotion Player) antes de renderizar."""
+    if not manager.get(job_id):
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    return TEMPLATES.TemplateResponse("preview.html", {"request": request, "job_id": job_id})
+
+
+@app.get("/api/jobs/{job_id}/ad.json")
+async def ad_json(job_id: str) -> FileResponse:
+    """Sirve el ad.json (la 'receta') del proyecto para el reproductor."""
+    p = manager.ad_json_path(job_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    return FileResponse(path=str(p), media_type="application/json")
+
+
+@app.get("/api/jobs/{job_id}/r/{path:path}")
+async def ad_asset(job_id: str, path: str) -> FileResponse:
+    """Sirve un asset del proyecto (video/música/sfx) para el reproductor."""
+    p = manager.ad_asset_path(job_id, path)
+    if not p:
+        raise HTTPException(status_code=404, detail="Asset no encontrado")
+    return FileResponse(path=str(p))
+
+
+@app.post("/api/jobs/{job_id}/render")
+async def render_ad(job_id: str) -> JSONResponse:
+    """Dispara el render del proyecto Remotion ya generado (modo anuncio)."""
+    if not manager.get(job_id):
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    if not manager.request_render(job_id):
+        raise HTTPException(status_code=409, detail="No se puede renderizar este trabajo")
+    return JSONResponse({"ok": True})
+
+
 @app.get("/api/jobs/{job_id}/project")
 async def download_project(job_id: str) -> FileResponse:
     """Descarga el proyecto Remotion editable (.zip) del modo anuncio."""

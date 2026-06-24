@@ -88,10 +88,10 @@ class Job:
             if done and self.n_clips > 0 else []
         )
         d["download_url"] = f"/api/jobs/{self.id}/download" if done else None
-        # En modo anuncio, además, el proyecto Remotion editable.
-        d["project_url"] = (
-            f"/api/jobs/{self.id}/project" if done and self.mode == "ad" else None
-        )
+        # En modo anuncio, además: proyecto editable + previsualización en vivo.
+        is_ad = done and self.mode == "ad"
+        d["project_url"] = f"/api/jobs/{self.id}/project" if is_ad else None
+        d["preview_url"] = f"/preview/{self.id}" if is_ad else None
         d.pop("output_dir", None)
         return d
 
@@ -107,7 +107,7 @@ class JobManager:
         self._voz: dict[str, Path] = {}
         self._req_clips: dict[str, int] = {}  # nº de clips pedido (0 = por defecto)
         self._lock = threading.Lock()
-        self._queue: "queue.Queue[str]" = queue.Queue()
+        self._queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
         self._worker = threading.Thread(target=self._run_worker, daemon=True)
         self._started = False
         self._store = JobStore(self._settings.storage_dir / "jobs.db")
@@ -149,7 +149,7 @@ class JobManager:
                         self._req_clips[job.id] = int(row["num_clips_req"])
                 self._store.update(row["id"], {"status": "queued", "progress": 0,
                                                "message": "Reanudado tras reinicio"})
-                self._queue.put(job.id)
+                self._queue.put(("job", job.id))
                 logger.info("Job %s reanudado tras reinicio", job.id)
             except Exception:  # noqa: BLE001
                 logger.exception("No se pudo recuperar el job %s", row["id"])
@@ -213,10 +213,21 @@ class JobManager:
         self._store.save(id=job_id, filenames=filenames, status=JobStatus.QUEUED.value,
                          created_at=job.created_at, sources=paths, music=music_paths,
                          mode=mode, voz=voz_path, num_clips_req=int(num_clips or 0))
-        self._queue.put(job_id)
+        self._queue.put(("job", job_id))
         logger.info("Job %s encolado (modo=%s, %d videos, %d pistas)",
                     job_id, mode, len(paths), len(music_paths))
         return job_id
+
+    def request_render(self, job_id: str) -> bool:
+        """Encola el render del proyecto Remotion ya generado (modo anuncio)."""
+        job = self.get(job_id)
+        if not job or job.mode != "ad" or not job.output_dir:
+            return False
+        if not (Path(job.output_dir) / "remotion-ad").exists():
+            return False
+        self._update(job_id, status=JobStatus.RENDERING, message="En cola para renderizar")
+        self._queue.put(("render", job_id))
+        return True
 
     def get(self, job_id: str) -> Job | None:
         """Devuelve el job por id (de memoria, o reconstruido desde SQLite)."""
@@ -241,6 +252,32 @@ class JobManager:
         if job and job.status == JobStatus.DONE and job.output_dir:
             p = Path(job.output_dir) / f"clip_{n}.mp4"
             return p if p.exists() else None
+        return None
+
+    def ad_project_dir(self, job_id: str) -> Path | None:
+        """Carpeta del proyecto Remotion del job, o None."""
+        job = self.get(job_id)
+        if job and job.output_dir:
+            p = Path(job.output_dir) / "remotion-ad"
+            return p if p.exists() else None
+        return None
+
+    def ad_json_path(self, job_id: str) -> Path | None:
+        """Ruta del ad.json del proyecto, o None."""
+        proj = self.ad_project_dir(job_id)
+        if proj and (proj / "ad.json").exists():
+            return proj / "ad.json"
+        return None
+
+    def ad_asset_path(self, job_id: str, rel: str) -> Path | None:
+        """Ruta de un asset del proyecto (public/<rel>), validada contra escapes."""
+        proj = self.ad_project_dir(job_id)
+        if not proj:
+            return None
+        public = (proj / "public").resolve()
+        target = (public / rel).resolve()
+        if str(target).startswith(str(public)) and target.is_file():
+            return target
         return None
 
     def ad_zip_path(self, job_id: str) -> Path | None:
@@ -278,9 +315,12 @@ class JobManager:
             self._settings.outputs_dir, self._settings.retencion_horas
         )
         while True:
-            job_id = self._queue.get()
+            kind, job_id = self._queue.get()
             try:
-                self._process(job_id)
+                if kind == "render":
+                    self._render_existing_ad(job_id)
+                else:
+                    self._process(job_id)
             except Exception as exc:  # noqa: BLE001 - el job no debe tumbar el hilo
                 logger.exception("Error inesperado procesando job %s", job_id)
                 self._update(
@@ -467,41 +507,24 @@ class JobManager:
 
             self._update(job_id, status=JobStatus.RENDERING,
                          message="Generando proyecto Remotion (anuncio)")
-            project_dir = build_ad_project(
+            build_ad_project(
                 videos, output_dir,
                 cta_texto=settings.cta_texto, whatsapp=settings.whatsapp_link,
                 vol=settings.musica_volumen, vol_duck=settings.musica_volumen_ducking,
                 sfx=sfx,
             )
-
-            # Renderizar el/los video(s) terminados (si hay Node + runtime).
-            aviso = ""
-            n_rendered = 0
-            if settings.renderizar_anuncio and ad_render.render_available():
-                self._update(job_id, status=JobStatus.RENDERING,
-                             message="Renderizando anuncio (Remotion)")
-                try:
-                    rendered = ad_render.render_ad_project(project_dir, output_dir)
-                    n_rendered = len(rendered)
-                except Exception as exc:  # noqa: BLE001 - si falla, deja el proyecto
-                    logger.exception("Render del anuncio falló; se entrega el proyecto.")
-                    aviso = f"No se pudo renderizar el video ({exc}); te dejamos el proyecto editable."
-            else:
-                aviso = ("Este servidor no renderiza video (sin Node); "
-                         "te entregamos el proyecto Remotion editable.")
-
-            # Quitar el symlink de node_modules antes de empaquetar (si no, el zip
-            # arrastraría todo el runtime).
-            link = project_dir / "node_modules"
-            if link.is_symlink():
-                link.unlink()
+            # Empaquetar el proyecto editable (.zip).
             shutil.make_archive(str(output_dir / "anuncio-remotion"), "zip",
                                 str(output_dir / "remotion-ad"))
 
-            self._update(job_id, status=JobStatus.DONE, message="Completado",
-                         n_clips=n_rendered, aviso=aviso, output_dir=str(output_dir))
-            logger.info("Job %s (anuncio) completado: %d videos, %d renderizados",
-                        job_id, len(videos), n_rendered)
+            # Con preview_first: NO renderizamos aún; mostramos la previsualización
+            # y el render se dispara con request_render (botón "Renderizar").
+            if settings.preview_first:
+                self._update(job_id, status=JobStatus.DONE, n_clips=0,
+                             message="Listo para previsualizar", output_dir=str(output_dir))
+                logger.info("Job %s (anuncio) generado; esperando preview/render", job_id)
+            else:
+                self._render_existing_ad(job_id, output_dir=output_dir, videos_n=len(videos))
         except Exception as exc:  # noqa: BLE001
             logger.exception("Fallo en el modo anuncio del job %s", job_id)
             self._update(job_id, status=JobStatus.ERROR,
@@ -514,6 +537,38 @@ class JobManager:
                 self._voz.pop(job_id, None)
                 self._req_clips.pop(job_id, None)
             cleanup.purge_old_outputs(settings.outputs_dir, settings.retencion_horas)
+
+    def _render_existing_ad(self, job_id: str, output_dir: Path | None = None,
+                            videos_n: int | None = None) -> None:
+        """Renderiza el proyecto Remotion ya generado a clip_N.mp4 (bajo demanda)."""
+        settings = self._settings
+        output_dir = output_dir or (settings.outputs_dir / job_id)
+        project_dir = output_dir / "remotion-ad"
+        if not project_dir.exists():
+            self._update(job_id, status=JobStatus.ERROR, error="Proyecto no encontrado")
+            return
+        if not (settings.renderizar_anuncio and ad_render.render_available()):
+            self._update(job_id, status=JobStatus.DONE, n_clips=0,
+                         message="Listo para previsualizar",
+                         aviso="Este servidor no renderiza video (sin Node); usa el proyecto.",
+                         output_dir=str(output_dir))
+            return
+        self._update(job_id, status=JobStatus.RENDERING,
+                     message="Renderizando anuncio (Remotion)")
+        try:
+            rendered = ad_render.render_ad_project(project_dir, output_dir)
+            n = len(rendered)
+            aviso = ""
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Render del anuncio falló (%s)", job_id)
+            n = 0
+            aviso = f"No se pudo renderizar ({exc}); usa el proyecto editable."
+        link = project_dir / "node_modules"
+        if link.is_symlink():
+            link.unlink()
+        self._update(job_id, status=JobStatus.DONE, n_clips=n, aviso=aviso,
+                     message="Completado", output_dir=str(output_dir))
+        logger.info("Job %s (anuncio) renderizado: %d video(s)", job_id, n)
 
 
 # Instancia global única.

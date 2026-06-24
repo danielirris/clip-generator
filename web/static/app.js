@@ -189,21 +189,20 @@
       downloadAll.textContent = "⬇️ Descargar todos (.zip)";
       downloadAll.href = job.download_url;
     } else if (isAd) {
-      // Modo anuncio sin render en el servidor: solo el proyecto editable.
+      // Modo anuncio: aún sin render -> a previsualizar en vivo.
+      $("result-title").textContent = "🎬 Anuncio listo para previsualizar";
       const info = document.createElement("p");
       info.className = "ad-note";
       info.innerHTML =
-        "Este servidor no renderizó el video. Descarga el proyecto Remotion:<br>" +
-        "<code>cd remotion-ad &amp;&amp; npm install &amp;&amp; npm run studio</code>";
+        "Mira tu anuncio <b>en vivo</b> (sin esperar el render) y, si te gusta, " +
+        "renderiza el video final desde ahí.";
       clipsGrid.appendChild(info);
-      $("result-title").textContent =
-        `✅ Proyecto Remotion listo (${job.n_videos} video(s))`;
-      downloadAll.textContent = "⬇️ Descargar proyecto Remotion (.zip)";
-      downloadAll.href = job.download_url;
+      downloadAll.textContent = "👁️ Previsualizar y renderizar";
+      downloadAll.href = job.preview_url || job.download_url;
     }
 
-    // En modo anuncio con video, ofrecemos también el proyecto editable.
-    if (isAd && job.project_url && clips.length) {
+    // En modo anuncio, ofrecemos también el proyecto editable.
+    if (isAd && job.project_url) {
       const pl = document.createElement("a");
       pl.id = "project-link";
       pl.className = "download-btn";
