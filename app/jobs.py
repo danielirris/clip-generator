@@ -453,12 +453,13 @@ class JobManager:
                     words=words, music=music, voz=voz,
                 ))
 
-            # Director de estilo: la IA entiende el tema y define la tipología de
-            # subtítulos (color de acento, palabras a resaltar, intensidad).
+            # Director de edición: la IA, leyendo la voz con timestamps, decide el
+            # plan completo por video (estilo, full-screen, píldoras, emojis...).
             self._update(job_id, status=JobStatus.ANALYZING,
-                         message="Diseñando el estilo (IA)")
-            transcript = " ".join(w.word for v in videos for w in v.words)
-            style = analyze.analyze_ad_style(transcript, library.read_prompt())
+                         message="Diseñando la edición (IA)")
+            prompt_text = library.read_prompt()
+            for v in videos:
+                v.plan = analyze.plan_ad(v.words, v.duration, prompt_text)
 
             self._update(job_id, status=JobStatus.RENDERING,
                          message="Generando proyecto Remotion (anuncio)")
@@ -466,7 +467,7 @@ class JobManager:
                 videos, output_dir,
                 cta_texto=settings.cta_texto, whatsapp=settings.whatsapp_link,
                 vol=settings.musica_volumen, vol_duck=settings.musica_volumen_ducking,
-                sfx=sfx, style=style,
+                sfx=sfx,
             )
 
             # Renderizar el/los video(s) terminados (si hay Node + runtime).

@@ -286,3 +286,171 @@ TRANSCRIPCIÓN:
     logger.info("Estilo IA: tema=%r accent=%s emphasis=%d",
                 style["tema"], style["accent"], len(style["emphasis"]))
     return style
+
+
+# --------------------------------------------------------------------------- #
+# Director de EDICIÓN: la IA decide placement (full-screen, píldoras, emojis)
+# en función de la voz (Regla 0). Lee palabras con timestamps.
+# --------------------------------------------------------------------------- #
+_SUBTITLE_STYLES = {"pop", "karaoke", "box", "punch", "color"}
+
+
+def _default_plan(words) -> dict:
+    plan = {
+        "tema": "", "accent": "#FFD400", "secondary": "#00E0FF",
+        "subtitle_style": "pop", "intensidad": 70,
+        "emphasis": [], "fullscreen": [], "pills": [], "emojis": [],
+    }
+    # Intro full-screen por defecto con las primeras palabras.
+    if words:
+        hook = " ".join(w.word for w in words[:4])
+        plan["fullscreen"] = [{"at": 0.0, "top": "", "key": hook, "sub": ""}]
+    return plan
+
+
+def _spaced(items: list[dict], key: str, gap: float, limit: int) -> list[dict]:
+    """Ordena por ``key``, fuerza separación mínima y limita la cantidad."""
+    out: list[dict] = []
+    for it in sorted(items, key=lambda d: d.get(key, 0.0)):
+        if out and it[key] - out[-1][key] < gap:
+            continue
+        out.append(it)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def plan_ad(words, duration: float, prompt_text: str = "") -> dict:
+    """Pide a la IA un PLAN de edición completo a partir de la voz (con tiempos).
+
+    Devuelve dict con: tema, accent, secondary, subtitle_style, intensidad,
+    emphasis, fullscreen[{at,top,key,sub}], pills[{start,end,text,emoji}],
+    emojis[{at,emoji}]. Robusto: ante fallo devuelve un plan por defecto.
+    """
+    from openai import OpenAI  # import perezoso
+
+    if not words:
+        return _default_plan(words)
+    settings = get_settings()
+    if not settings.openai_api_key:
+        return _default_plan(words)
+
+    lines = "\n".join(f"[{w.start:.1f}] {w.word}" for w in words[:200])
+    sys = (
+        "Eres editor de video senior (Reels/TikTok). Construyes el video EN FUNCIÓN "
+        "DE LA VOZ: cada gráfico responde a lo que se dice, en su segundo exacto."
+    )
+    user = f"""\
+Tienes la transcripción con timestamps (segundos) y los lineamientos. Diseña el PLAN
+de edición. Devuelve EXCLUSIVAMENTE JSON válido:
+{{"tema":"<tema>","accent":"#RRGGBB","secondary":"#RRGGBB",
+"subtitle_style":"pop|karaoke|box|punch|color","intensidad":<0-100>,
+"emphasis":["<palabras clave del texto a resaltar>"],
+"fullscreen":[{{"at":<seg>,"top":"<línea pequeña MAYÚS, opcional>","key":"<palabra/frase clave grande>","sub":"<subtítulo fino, opcional>"}}],
+"pills":[{{"start":<seg>,"end":<seg>,"text":"<frase clave en MAYÚS>","emoji":"<emoji acorde>"}}],
+"emojis":[{{"at":<seg>,"emoji":"<emoji>"}}]}}
+
+Reglas:
+- TODO sale del guion: el texto de cada gráfico es lo que dice la voz en ese momento.
+- "at"/"start"/"end" en segundos dentro de [0, {duration:.1f}], tomados de los timestamps.
+- fullscreen: 2-3 (uno al inicio ~0s, uno al centro, opcional antes del cierre).
+- pills: 2-5 en las frases más relevantes; "end" cuando la voz termina la frase.
+- emojis: 3-6, contextuales (🥛 leche, 🌱 natural, 💪 salud, 💰 dinero, ✨ beneficio...).
+- accent vibrante de alto contraste acorde al tema; evita amarillo si el fondo es claro.
+- No satures: cada elemento con propósito.
+
+LINEAMIENTOS:
+{prompt_text[:3000]}
+
+TRANSCRIPCIÓN (timestamp en segundos):
+{lines}
+"""
+    try:
+        resp = with_retries(
+            lambda: client_chat(settings, sys, user),
+            what="plan de edición OpenAI", attempts=2,
+        )
+        data = json.loads(resp)
+    except Exception:  # noqa: BLE001
+        logger.warning("No se pudo obtener el plan; se usa el de por defecto.")
+        return _default_plan(words)
+
+    plan = _default_plan(words)
+    if not isinstance(data, dict):
+        return plan
+    if isinstance(data.get("tema"), str):
+        plan["tema"] = data["tema"][:80]
+    for k in ("accent", "secondary"):
+        v = str(data.get(k, "")).strip()
+        if re.fullmatch(r"#[0-9A-Fa-f]{6}", v):
+            plan[k] = v.upper()
+    st = str(data.get("subtitle_style", "")).strip().lower()
+    plan["subtitle_style"] = st if st in _SUBTITLE_STYLES else "pop"
+    try:
+        plan["intensidad"] = max(0, min(100, int(data.get("intensidad", 70))))
+    except (TypeError, ValueError):
+        pass
+    if isinstance(data.get("emphasis"), list):
+        plan["emphasis"] = [str(w).strip() for w in data["emphasis"][:15] if str(w).strip()]
+
+    def _clamp(x):
+        try:
+            return max(0.0, min(float(duration), float(x)))
+        except (TypeError, ValueError):
+            return None
+
+    fs = []
+    for it in data.get("fullscreen", []) or []:
+        if not isinstance(it, dict):
+            continue
+        at = _clamp(it.get("at"))
+        key = str(it.get("key", "")).strip()
+        if at is None or not key:
+            continue
+        fs.append({"at": round(at, 2), "top": str(it.get("top", "")).strip()[:40],
+                   "key": key[:60], "sub": str(it.get("sub", "")).strip()[:80]})
+    plan["fullscreen"] = _spaced(fs, "at", 2.0, 3) or plan["fullscreen"]
+
+    pills = []
+    for it in data.get("pills", []) or []:
+        if not isinstance(it, dict):
+            continue
+        s, e = _clamp(it.get("start")), _clamp(it.get("end"))
+        text = str(it.get("text", "")).strip()
+        if s is None or not text:
+            continue
+        if e is None or e <= s:
+            e = min(float(duration), s + 1.8)
+        pills.append({"start": round(s, 2), "end": round(e, 2), "text": text[:42],
+                      "emoji": str(it.get("emoji", "")).strip()[:4]})
+    plan["pills"] = _spaced(pills, "start", 1.5, 5)
+
+    emojis = []
+    for it in data.get("emojis", []) or []:
+        if not isinstance(it, dict):
+            continue
+        at = _clamp(it.get("at"))
+        em = str(it.get("emoji", "")).strip()
+        if at is None or not em:
+            continue
+        emojis.append({"at": round(at, 2), "emoji": em[:4]})
+    plan["emojis"] = _spaced(emojis, "at", 1.2, 6)
+
+    logger.info("Plan IA: tema=%r accent=%s style=%s fs=%d pills=%d emojis=%d",
+                plan["tema"], plan["accent"], plan["subtitle_style"],
+                len(plan["fullscreen"]), len(plan["pills"]), len(plan["emojis"]))
+    return plan
+
+
+def client_chat(settings, system: str, user: str) -> str:
+    """Llamada de chat JSON reutilizable (devuelve el texto del mensaje)."""
+    from openai import OpenAI
+    client = OpenAI(api_key=settings.openai_api_key)
+    resp = client.chat.completions.create(
+        model=settings.openai_analyze_model,
+        messages=[{"role": "system", "content": system},
+                  {"role": "user", "content": user}],
+        response_format={"type": "json_object"},
+        temperature=0.5,
+    )
+    return resp.choices[0].message.content or "{}"
