@@ -10,7 +10,7 @@ ENV PYTHONUNBUFFERED=1 \
 # librerías de sistema que necesita el Chrome headless de Remotion en Linux.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ffmpeg fonts-dejavu-core curl ca-certificates gnupg \
+        ffmpeg fonts-dejavu-core fonts-noto-color-emoji curl ca-certificates gnupg \
         libnss3 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 libgbm1 libasound2 \
         libxrandr2 libxkbcommon0 libxfixes3 libxcomposite1 libxdamage1 libxext6 \
         libxshmfence1 libpango-1.0-0 libcairo2 libcups2 \
