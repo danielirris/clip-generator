@@ -248,7 +248,7 @@ Reglas:
 - El color y la intensidad deben pegar con el tema (salud=verde, lujo=dorado, tecnología=azul, etc.).
 
 LINEAMIENTOS:
-{prompt_text[:2000]}
+{prompt_text[:4000]}
 
 TRANSCRIPCIÓN:
 {transcript[:4000]}
