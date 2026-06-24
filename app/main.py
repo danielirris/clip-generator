@@ -154,6 +154,7 @@ async def create_job(
     music: list[UploadFile] = File(None),
     voz: UploadFile | None = File(None),
     mode: str = Form("montage"),
+    num_clips: int = Form(0),
 ) -> JSONResponse:
     """Recibe varios videos (compendio) y varias pistas de música; crea un job.
 
@@ -187,7 +188,8 @@ async def create_job(
             voz_saved[0].unlink(missing_ok=True)
         raise
 
-    job_id = manager.submit(saved, music_saved, mode, voz_saved)
+    num_clips = max(0, min(20, num_clips))  # tope sano
+    job_id = manager.submit(saved, music_saved, mode, voz_saved, num_clips)
     return JSONResponse(
         {"job_id": job_id, "n_videos": len(saved), "music": len(music_saved),
          "voz": voz_saved is not None, "mode": mode},

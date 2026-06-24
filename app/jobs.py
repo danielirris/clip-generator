@@ -105,6 +105,7 @@ class JobManager:
         self._sources: dict[str, list[Path]] = {}
         self._music: dict[str, list[Path]] = {}
         self._voz: dict[str, Path] = {}
+        self._req_clips: dict[str, int] = {}  # nº de clips pedido (0 = por defecto)
         self._lock = threading.Lock()
         self._queue: "queue.Queue[str]" = queue.Queue()
         self._worker = threading.Thread(target=self._run_worker, daemon=True)
@@ -144,6 +145,8 @@ class JobManager:
                         self._music[job.id] = music  # lista de pistas
                     if voz:
                         self._voz[job.id] = voz
+                    if row["num_clips_req"]:
+                        self._req_clips[job.id] = int(row["num_clips_req"])
                 self._store.update(row["id"], {"status": "queued", "progress": 0,
                                                "message": "Reanudado tras reinicio"})
                 self._queue.put(job.id)
@@ -158,6 +161,7 @@ class JobManager:
         music_tmps: list[tuple[Path, str]] | None = None,
         mode: str = "montage",
         voz_tmp: tuple[Path, str] | None = None,
+        num_clips: int = 0,
     ) -> str:
         """Registra un nuevo job, mueve los uploads a su carpeta y lo encola.
 
@@ -204,9 +208,11 @@ class JobManager:
                 self._music[job_id] = music_paths
             if voz_path is not None:
                 self._voz[job_id] = voz_path
+            if num_clips:
+                self._req_clips[job_id] = int(num_clips)
         self._store.save(id=job_id, filenames=filenames, status=JobStatus.QUEUED.value,
                          created_at=job.created_at, sources=paths, music=music_paths,
-                         mode=mode, voz=voz_path)
+                         mode=mode, voz=voz_path, num_clips_req=int(num_clips or 0))
         self._queue.put(job_id)
         logger.info("Job %s encolado (modo=%s, %d videos, %d pistas)",
                     job_id, mode, len(paths), len(music_paths))
@@ -331,7 +337,7 @@ class JobManager:
             # Construir pool y componer N clips (cortes de duración variable).
             rng = random.Random(f"{settings.seed}:{job_id}")
             pool = build_pool(videos, rng, settings.beat_min_s, settings.beat_max_s)
-            n_clips = max(1, settings.num_clips)
+            n_clips = max(1, self._req_clips.get(job_id) or settings.num_clips)
             # Las transiciones (xfade) solapan y acortan el clip; compensamos
             # componiendo un poco más de material para acabar cerca de la duración.
             buffer_s = 0.0
@@ -402,6 +408,7 @@ class JobManager:
                 self._sources.pop(job_id, None)
                 self._music.pop(job_id, None)
                 self._voz.pop(job_id, None)
+                self._req_clips.pop(job_id, None)
             cleanup.purge_old_outputs(settings.outputs_dir, settings.retencion_horas)
 
     def _process_ad(self, job_id: str, sources: list[Path],
@@ -500,6 +507,7 @@ class JobManager:
                 self._sources.pop(job_id, None)
                 self._music.pop(job_id, None)
                 self._voz.pop(job_id, None)
+                self._req_clips.pop(job_id, None)
             cleanup.purge_old_outputs(settings.outputs_dir, settings.retencion_horas)
 
 

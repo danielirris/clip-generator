@@ -83,6 +83,7 @@
     for (const m of $("music").files) data.append("music", m);
     const mode = document.querySelector('input[name="mode"]:checked').value;
     data.append("mode", mode);
+    data.append("num_clips", $("num_clips").value || "5");
     const voz = $("voz").files[0];
     if (voz) data.append("voz", voz);
 
@@ -243,6 +244,7 @@
   function syncModeUI() {
     const mode = document.querySelector('input[name="mode"]:checked').value;
     $("voz-row").style.display = mode === "ad" ? "block" : "none";
+    $("count-row").style.display = mode === "ad" ? "none" : "flex";
     $("music-hint").textContent =
       mode === "ad"
         ? "música por debajo de la voz (con ducking automático)."
