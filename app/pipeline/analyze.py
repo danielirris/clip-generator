@@ -295,6 +295,20 @@ TRANSCRIPCIÓN:
 _SUBTITLE_STYLES = {"pop", "karaoke", "box", "punch", "color"}
 
 
+_VIBRANT = [
+    "#FF5C5C", "#FF8A00", "#FFB020", "#FFD400", "#2ECC71", "#16A34A",
+    "#1ABC9C", "#00C2FF", "#3B82F6", "#7C5CFF", "#E040FB", "#FF2D78",
+]
+
+
+def random_palette(seed: str, n: int = 5) -> list[str]:
+    """Paleta vibrante ALEATORIA (barajada por ``seed``), independiente del tema."""
+    import random as _r
+    pal = _VIBRANT[:]
+    _r.Random(seed).shuffle(pal)
+    return pal[:n]
+
+
 def _default_plan(words) -> dict:
     plan = {
         "tema": "", "accent": "#FFD400", "secondary": "#00E0FF",
@@ -353,6 +367,9 @@ de edición. Devuelve EXCLUSIVAMENTE JSON válido:
 "emojis":[{{"at":<seg>,"emoji":"<emoji>"}}]}}
 
 Reglas:
+- CÍÑETE AL AUDIO (CRÍTICO): usa SOLO lo que dice la voz, literal. NO inventes ni
+  agregues cifras, precios, datos, beneficios ni promesas que NO estén EXPLÍCITAMENTE
+  en la transcripción. Si la voz no dice un precio, no pongas precio. Cero invenciones.
 - TODO sale del guion: el texto de cada gráfico es lo que dice la voz en ese momento.
 - "at"/"start"/"end" en segundos dentro de [0, {duration:.1f}], tomados de los timestamps.
 - fullscreen: 2-3 tarjetas a PANTALLA COMPLETA (cubren todo el cuadro). Una al inicio

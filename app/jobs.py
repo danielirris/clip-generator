@@ -460,6 +460,10 @@ class JobManager:
             prompt_text = library.read_prompt()
             for v in videos:
                 v.plan = analyze.plan_ad(v.words, v.duration, prompt_text)
+                # Colores AL AZAR (independientes del tema): paleta barajada por video.
+                pal = analyze.random_palette(f"{settings.seed}:{job_id}:{v.id}")
+                v.plan["palette"] = pal
+                v.plan["accent"] = pal[0]
 
             self._update(job_id, status=JobStatus.RENDERING,
                          message="Generando proyecto Remotion (anuncio)")

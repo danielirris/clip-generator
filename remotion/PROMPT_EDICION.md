@@ -7,9 +7,8 @@
 - **Acento:** un color vibrante de alto contraste **acorde al tema** del video
   (salud/natural → verde; lujo → dorado; tecnología → azul; energía → naranja/rojo).
   Debe leerse sobre texto blanco con contorno negro. Evita amarillo si el fondo es claro.
-- **Paleta VARIADA:** no uses un solo color en todo el video. Usa 4-6 colores vibrantes
-  (cohesivos con el tema pero distintos entre sí); **cada tarjeta full-screen y cada
-  píldora con un color diferente** para que la presentación no sea monótona.
+- **Colores:** la app asigna una **paleta ALEATORIA por video** (cada tarjeta full-screen
+  y cada píldora con un color distinto). No te preocupes por elegir colores.
 - **Resaltar:** nombre del producto, beneficios fuertes, números, palabras
   emocionales y la llamada a la acción. 1 resalte fuerte cada ~2–4 s (no satures).
 - **Subtítulos:** fuente gruesa, alto contraste, contorno/sombra, animación de
@@ -25,6 +24,9 @@ del video (no lo asumas). CTA final: "Haz clic para conseguir el tuyo" + botón
 animado a WhatsApp (sin número visible).
 
 ## REGLAS
+0. **CÍÑETE AL AUDIO (crítico):** usa SOLO lo que dice la voz, literal. NO inventes
+   cifras, precios, datos, beneficios ni promesas que no estén EXPLÍCITAMENTE en el
+   audio. Cada texto en pantalla = algo que la voz dice. Cero invenciones.
 1. **Audio:** conserva SIEMPRE el audio original (no lo silencies). Música de fondo
    libre de derechos a ~15–20%, con **ducking** (la voz siempre por encima). SFX
    (whoosh/pop/ding) en transiciones, apariciones de texto y resaltes — con
