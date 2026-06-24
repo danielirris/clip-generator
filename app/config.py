@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     hook_beats: int = 2           # fragmentos "impactantes" al inicio de cada clip
     modo_fondo: str = "blur"      # blur | crop | pad_negro
     subtitulos: bool = True
+    # Apartado 1 (Recortes): SIN subtítulos por defecto — los subtítulos bonitos
+    # se ponen en el Apartado 2 (Remotion); si no, quedarían dobles/encimados.
+    subtitulos_recortes: bool = False
 
     # --- Transiciones ---
     transiciones: bool = True     # aplicar transiciones entre fragmentos

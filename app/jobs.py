@@ -357,7 +357,7 @@ class JobManager:
             result = render.render_clips(
                 clips, segments_by_video, video_names, work_dir, output_dir, rng,
                 modo_fondo=settings.modo_fondo,
-                subtitulos=settings.subtitulos,
+                subtitulos=settings.subtitulos_recortes,  # Apartado 1: sin subtítulos
                 transiciones=settings.transiciones,
                 trans_min=settings.trans_min,
                 trans_max=settings.trans_max,
