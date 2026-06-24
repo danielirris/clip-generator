@@ -142,6 +142,30 @@ function Cta({ texto, whatsapp, startFrame }) {
   );
 }
 
+function ListScene({ title, items, accent }) {
+  const { fps, width, durationInFrames } = useVideoConfig();
+  const f = useCurrentFrame();
+  const enter = spring({ frame: f, fps, config: { damping: 18 } });
+  const out = interpolate(f, [durationInFrames - 7, durationInFrames], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const o = Math.min(enter, out);
+  return (
+    <AbsoluteFill style={{ justifyContent: 'center', background: 'linear-gradient(160deg,#0c0e13,#11151d)', opacity: o }}>
+      <div style={{ margin: '0 9%' }}>
+        {title ? <div style={{ color: '#fff', fontFamily, fontWeight: 900, fontSize: Math.round(width * 0.085), textTransform: 'uppercase', marginBottom: Math.round(width * 0.05), lineHeight: 1.05, WebkitTextStroke: '2px rgba(0,0,0,0.3)', paintOrder: 'stroke fill', opacity: enter, transform: `translateY(${(1 - enter) * 30}px)` }}>{title}</div> : null}
+        {(items || []).map((it, i) => {
+          const ip = Math.min(1, spring({ frame: f - 8 - i * 7, fps, config: { damping: 14, mass: 0.6 } }));
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: Math.round(width * 0.03), opacity: ip, transform: `translateX(${(1 - ip) * -40}px)` }}>
+              <div style={{ flexShrink: 0, width: Math.round(width * 0.075), height: Math.round(width * 0.075), borderRadius: '50%', background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#08110b', fontFamily, fontWeight: 900, fontSize: Math.round(width * 0.042) }}>✓</div>
+              <div style={{ color: '#fff', fontFamily, fontWeight: 700, fontSize: Math.round(width * 0.058), lineHeight: 1.1, textTransform: 'uppercase' }}>{it}</div>
+            </div>
+          );
+        })}
+      </div>
+    </AbsoluteFill>
+  );
+}
+
 const CARD_S = 2.0;
 function Ad({ v, cta, musica, sfx, assetBase }) {
   const { fps, durationInFrames } = useVideoConfig();
@@ -153,7 +177,8 @@ function Ad({ v, cta, musica, sfx, assetBase }) {
   const src = (n) => `${assetBase}/${n}`;
   const ctaStart = durationInFrames - Math.round(3 * fps);
   const cards = (plan.fullscreen || []).map((c) => ({ ...c, f: Math.round(c.at * fps) }));
-  const onCard = cards.some((c) => frame >= c.f && frame < c.f + CARD_S * fps);
+  const lists = (plan.lists || []).map((l) => ({ ...l, f: Math.round(l.at * fps), df: Math.round((1.2 + (l.items ? l.items.length : 0) * 0.7) * fps) }));
+  const onFull = cards.some((c) => frame >= c.f && frame < c.f + CARD_S * fps) || lists.some((l) => frame >= l.f && frame < l.f + l.df);
   const isSpeaking = (f) => v.words.some((w) => f / fps >= w.start && f / fps < w.end);
   const kb = interpolate(frame, [0, durationInFrames], [1.03, 1.1], { extrapolateRight: 'clamp' });
   return (
@@ -170,7 +195,10 @@ function Ad({ v, cta, musica, sfx, assetBase }) {
         <Sequence key={`pop${i}`} from={Math.round(s * fps)} durationInFrames={Math.round(0.18 * fps)}><Audio src={src(sfx.pop)} volume={0.3} /></Sequence>
       )) : null}
       {sfx && sfx.ding ? <Sequence from={ctaStart + Math.round(0.18 * fps)} durationInFrames={Math.round(0.7 * fps)}><Audio src={src(sfx.ding)} volume={0.5} /></Sequence> : null}
-      {!onCard && frame < ctaStart ? <Subtitles words={v.words} plan={plan} /> : null}
+      {!onFull && frame < ctaStart ? <Subtitles words={v.words} plan={plan} /> : null}
+      {lists.map((l, i) => (
+        <Sequence key={`list${i}`} from={l.f} durationInFrames={l.df}><ListScene title={l.title} items={l.items} accent={pick(i + 2)} /></Sequence>
+      ))}
       {(plan.pills || []).map((p, i) => (
         <Sequence key={`pill${i}`} from={Math.round(p.start * fps)} durationInFrames={Math.max(1, Math.round((p.end - p.start) * fps))}><Pill text={p.text} emoji={p.emoji} accent={pick(i + 1)} /></Sequence>
       ))}

@@ -24,6 +24,7 @@ _DEFAULT_PLAN = {
     "palette": ["#FF5C5C", "#FFB020", "#2ECC71", "#00C2FF", "#7C5CFF"],
     "subtitle_style": "pop", "intensidad": 70,
     "emphasis": [], "fullscreen": [], "pills": [], "emojis": [], "overlays": [],
+    "lists": [],
 }
 
 
@@ -129,6 +130,7 @@ def build_ad_project(
     (src / "Ad.tsx").write_text(_AD_TSX, encoding="utf-8")
     (src / "Subtitles.tsx").write_text(_SUBTITLES_TSX, encoding="utf-8")
     (src / "Card.tsx").write_text(_CARD_TSX, encoding="utf-8")
+    (src / "List.tsx").write_text(_LIST_TSX, encoding="utf-8")
     (src / "Pill.tsx").write_text(_PILL_TSX, encoding="utf-8")
     (src / "EmojiPop.tsx").write_text(_EMOJIPOP_TSX, encoding="utf-8")
     (src / "Cta.tsx").write_text(_CTA_TSX, encoding="utf-8")
@@ -196,6 +198,7 @@ import { Card } from './Card';
 import { Pill } from './Pill';
 import { EmojiPop } from './EmojiPop';
 import { Cta } from './Cta';
+import { ListScene } from './List';
 
 const CARD_S = 2.0;
 
@@ -211,7 +214,9 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any }> = ({ v, c
   const ctaStart = durationInFrames - ctaFrames;
 
   const cards = (plan.fullscreen || []).map((c: any) => ({ ...c, f: Math.round(c.at * fps) }));
-  const onCard = cards.some((c: any) => frame >= c.f && frame < c.f + CARD_S * fps);
+  const lists = (plan.lists || []).map((l: any) => ({ ...l, f: Math.round(l.at * fps), df: Math.round((1.2 + (l.items ? l.items.length : 0) * 0.7) * fps) }));
+  const onFull = cards.some((c: any) => frame >= c.f && frame < c.f + CARD_S * fps)
+    || lists.some((l: any) => frame >= l.f && frame < l.f + l.df);
 
   const isSpeaking = (f: number) => v.words.some((w: any) => f / fps >= w.start && f / fps < w.end);
 
@@ -249,7 +254,14 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any }> = ({ v, c
       ) : null}
 
       {/* Subtítulos (ocultos durante tarjetas full-screen y CTA). */}
-      {!onCard && frame < ctaStart ? <Subtitles words={v.words} plan={plan} /> : null}
+      {!onFull && frame < ctaStart ? <Subtitles words={v.words} plan={plan} /> : null}
+
+      {/* Escenas de lista (cuando la voz enumera). */}
+      {lists.map((l: any, i: number) => (
+        <Sequence key={`list${i}`} from={l.f} durationInFrames={l.df}>
+          <ListScene title={l.title} items={l.items} accent={pick(i + 2)} />
+        </Sequence>
+      ))}
 
       {/* Píldoras / badges sobre el video. */}
       {(plan.pills || []).map((p: any, i: number) => {
@@ -419,6 +431,44 @@ export const Card: React.FC<{ top?: string; keyText: string; sub?: string; emoji
           transform: `scale(${(0.6 + 0.4 * Math.min(1, keyPop)) * pulse})` }}>{keyText}</div>
         {sub ? <div style={{ color: '#ffffffe6', fontFamily, fontWeight: 700, marginTop: 14,
           fontSize: Math.round(width * 0.046), opacity: subIn, transform: `translateY(${(1 - subIn) * 16}px)` }}>{sub}</div> : null}
+      </div>
+    </AbsoluteFill>
+  );
+};
+"""
+
+_LIST_TSX = """\
+import React from 'react';
+import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { fontFamily } from './font';
+
+// Escena de LISTA full-screen: título + items que entran uno por uno (✓).
+export const ListScene: React.FC<{ title?: string; items: string[]; accent: string }> = ({ title, items, accent }) => {
+  const { fps, width, durationInFrames } = useVideoConfig();
+  const f = useCurrentFrame();
+  const enter = spring({ frame: f, fps, config: { damping: 18 } });
+  const out = interpolate(f, [durationInFrames - 7, durationInFrames], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const o = Math.min(enter, out);
+  return (
+    <AbsoluteFill style={{ justifyContent: 'center', background: 'linear-gradient(160deg,#0c0e13,#11151d)', opacity: o }}>
+      <div style={{ margin: '0 9%' }}>
+        {title ? <div style={{ color: '#fff', fontFamily, fontWeight: 900, fontSize: Math.round(width * 0.085),
+          textTransform: 'uppercase', marginBottom: Math.round(width * 0.05), lineHeight: 1.05,
+          WebkitTextStroke: '2px rgba(0,0,0,0.3)', paintOrder: 'stroke fill',
+          opacity: enter, transform: `translateY(${(1 - enter) * 30}px)` }}>{title}</div> : null}
+        {(items || []).map((it, i) => {
+          const ip = Math.min(1, spring({ frame: f - 8 - i * 7, fps, config: { damping: 14, mass: 0.6 } }));
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: Math.round(width * 0.03),
+              opacity: ip, transform: `translateX(${(1 - ip) * -40}px)` }}>
+              <div style={{ flexShrink: 0, width: Math.round(width * 0.075), height: Math.round(width * 0.075), borderRadius: '50%',
+                background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#08110b', fontFamily, fontWeight: 900, fontSize: Math.round(width * 0.042) }}>✓</div>
+              <div style={{ color: '#fff', fontFamily, fontWeight: 700, fontSize: Math.round(width * 0.058),
+                lineHeight: 1.1, textTransform: 'uppercase' }}>{it}</div>
+            </div>
+          );
+        })}
       </div>
     </AbsoluteFill>
   );

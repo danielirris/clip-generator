@@ -314,7 +314,7 @@ def _default_plan(words) -> dict:
         "tema": "", "accent": "#FFD400", "secondary": "#00E0FF",
         "palette": ["#FF5C5C", "#FFB020", "#2ECC71", "#00C2FF", "#7C5CFF"],
         "subtitle_style": "pop", "intensidad": 70,
-        "emphasis": [], "fullscreen": [], "pills": [], "emojis": [],
+        "emphasis": [], "fullscreen": [], "pills": [], "emojis": [], "lists": [],
     }
     # Intro full-screen por defecto con las primeras palabras.
     if words:
@@ -363,6 +363,7 @@ de edición. Devuelve EXCLUSIVAMENTE JSON válido:
 "subtitle_style":"pop|karaoke|box|punch|color","intensidad":<0-100>,
 "emphasis":["<palabras clave del texto a resaltar>"],
 "fullscreen":[{{"at":<seg>,"top":"<línea pequeña MAYÚS, opcional>","key":"<palabra/frase clave grande>","sub":"<subtítulo fino, opcional>","emoji":"<emoji grande acorde, opcional>"}}],
+"lists":[{{"at":<seg>,"title":"<título corto de la lista>","items":["<item1>","<item2>"]}}],
 "pills":[{{"start":<seg>,"end":<seg>,"text":"<frase clave en MAYÚS>","emoji":"<emoji acorde>"}}],
 "emojis":[{{"at":<seg>,"emoji":"<emoji>"}}]}}
 
@@ -375,6 +376,10 @@ Reglas:
 - fullscreen: 2-3 tarjetas a PANTALLA COMPLETA (cubren todo el cuadro). Una al inicio
   (~0s), una al centro, opcional antes del cierre. VARÍA los títulos: cada tarjeta con
   texto distinto, no repitas la misma palabra/estructura.
+- lists: SOLO si la voz ENUMERA varios elementos (beneficios, pasos, razones,
+  ingredientes...). Conviértelo en una escena de lista a pantalla completa: el
+  "title" y cada "item" salen del guion. 1-2 listas máx, 2-6 items. Si la voz no
+  enumera nada, deja "lists" vacío.
 - pills: 2-5 en las frases más relevantes; "end" cuando la voz termina la frase.
 - emojis: 3-6, contextuales (🥛 leche, 🌱 natural, 💪 salud, 💰 dinero, ✨ beneficio...).
 - "palette": 4-6 colores vibrantes de alto contraste, **VARIADOS entre sí** (no todos el
@@ -464,9 +469,21 @@ TRANSCRIPCIÓN (timestamp en segundos):
         emojis.append({"at": round(at, 2), "emoji": em[:4]})
     plan["emojis"] = _spaced(emojis, "at", 1.2, 6)
 
-    logger.info("Plan IA: tema=%r accent=%s style=%s fs=%d pills=%d emojis=%d",
-                plan["tema"], plan["accent"], plan["subtitle_style"],
-                len(plan["fullscreen"]), len(plan["pills"]), len(plan["emojis"]))
+    lists = []
+    for it in data.get("lists", []) or []:
+        if not isinstance(it, dict):
+            continue
+        at = _clamp(it.get("at"))
+        items = [str(x).strip()[:60] for x in (it.get("items") or []) if str(x).strip()][:6]
+        if at is None or len(items) < 2:
+            continue
+        lists.append({"at": round(at, 2), "title": str(it.get("title", "")).strip()[:60],
+                      "items": items})
+    plan["lists"] = _spaced(lists, "at", 2.0, 2)
+
+    logger.info("Plan IA: tema=%r style=%s fs=%d pills=%d emojis=%d lists=%d",
+                plan["tema"], plan["subtitle_style"], len(plan["fullscreen"]),
+                len(plan["pills"]), len(plan["emojis"]), len(plan["lists"]))
     return plan
 
 
