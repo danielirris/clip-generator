@@ -11,7 +11,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from app.config import BASE_DIR
+from app.config import BASE_DIR, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +42,11 @@ def render_ad_project(project_dir: Path, out_dir: Path, timeout: int = 1800) -> 
 
     script = RUNTIME / "render.mjs"
     logger.info("Renderizando anuncio con Remotion: %s", project_dir.name)
+    env = dict(os.environ)
+    env["REMOTION_CONCURRENCY"] = str(get_settings().remotion_concurrency or 0)
     proc = subprocess.run(
         ["node", str(script), str(project_dir), str(out_dir)],
-        capture_output=True, text=True, cwd=str(RUNTIME), timeout=timeout,
+        capture_output=True, text=True, cwd=str(RUNTIME), timeout=timeout, env=env,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"Render Remotion falló: {proc.stderr[-1000:]}")

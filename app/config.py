@@ -53,8 +53,9 @@ class Settings(BaseSettings):
     # --- Remotion ---
     remotion_export: bool = True  # exportar proyecto Remotion editable por job
 
-    # --- Recursos (estabilidad en VPS) ---
-    ffmpeg_threads: int = 1       # hilos de FFmpeg (1 = menor pico de CPU/RAM)
+    # --- Recursos / velocidad ---
+    ffmpeg_threads: int = 0        # 0 = auto (usa todos los núcleos = más rápido)
+    remotion_concurrency: int = 0  # 0 = auto (Remotion elige según los núcleos)
 
     # --- Modo anuncio (proyecto Remotion por video) ---
     whatsapp_link: str = "https://wa.me/0000000000"  # CTA (placeholder editable)

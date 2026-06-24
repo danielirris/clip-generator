@@ -23,6 +23,10 @@ const serveUrl = await bundle({ entryPoint: entry, publicDir });
 const comps = await getCompositions(serveUrl, { logLevel: 'error' });
 console.log('[render] composiciones:', comps.map((c) => c.id).join(', '));
 
+// Concurrencia: REMOTION_CONCURRENCY (0/ausente => null = auto, Remotion elige).
+const conc = Number(process.env.REMOTION_CONCURRENCY) || null;
+console.log('[render] concurrency:', conc ?? 'auto');
+
 let i = 1;
 for (const comp of comps) {
   const out = path.join(outDir, `clip_${i}.mp4`);
@@ -32,7 +36,7 @@ for (const comp of comps) {
     serveUrl,
     codec: 'h264',
     outputLocation: out,
-    concurrency: 1,            // bajo uso de recursos
+    concurrency: conc,
     logLevel: 'error',
   });
   console.log(`[render] OK ${out}`);
