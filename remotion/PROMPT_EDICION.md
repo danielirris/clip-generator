@@ -7,6 +7,9 @@
 - **Acento:** un color vibrante de alto contraste **acorde al tema** del video
   (salud/natural → verde; lujo → dorado; tecnología → azul; energía → naranja/rojo).
   Debe leerse sobre texto blanco con contorno negro. Evita amarillo si el fondo es claro.
+- **Paleta VARIADA:** no uses un solo color en todo el video. Usa 4-6 colores vibrantes
+  (cohesivos con el tema pero distintos entre sí); **cada tarjeta full-screen y cada
+  píldora con un color diferente** para que la presentación no sea monótona.
 - **Resaltar:** nombre del producto, beneficios fuertes, números, palabras
   emocionales y la llamada a la acción. 1 resalte fuerte cada ~2–4 s (no satures).
 - **Subtítulos:** fuente gruesa, alto contraste, contorno/sombra, animación de
@@ -31,9 +34,11 @@ animado a WhatsApp (sin número visible).
 3. **Resaltado de palabras clave:** a las palabras importantes dales tratamiento
    especial sincronizado (color/escala, pop con rebote, pastilla de color) + un
    SFX corto en el mismo timestamp. Solo las que de verdad importan.
-4. **Momentos full-screen (2–3):** uno al inicio (gancho, primeros 1–2 s), uno al
-   centro (beneficio/producto fuerte) y opcional antes del CTA. Texto grande,
-   entrada con movimiento + SFX (riser/whoosh). Que rompan el ritmo, sin saturar.
+4. **Momentos full-screen (2–3):** a **PANTALLA COMPLETA** (cubren todo el cuadro,
+   fondo de color sólido). Uno al inicio (gancho, primeros 1–2 s), uno al centro
+   (beneficio/producto fuerte) y opcional antes del CTA. **Títulos VARIADOS** (cada
+   tarjeta con texto distinto, no repitas) y **cada una con un color de la paleta**.
+   Texto grande centrado, entrada con movimiento + SFX. Que rompan el ritmo.
 5. **Transiciones y ritmo:** transiciones modernas y limpias (corte al beat,
    zoom, slide/push, whip-pan, glitch sutil) con su SFX. Nada estático más de
    2–3 s. Sincroniza cortes con la música y las pausas de la voz.

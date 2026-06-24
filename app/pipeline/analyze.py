@@ -298,6 +298,7 @@ _SUBTITLE_STYLES = {"pop", "karaoke", "box", "punch", "color"}
 def _default_plan(words) -> dict:
     plan = {
         "tema": "", "accent": "#FFD400", "secondary": "#00E0FF",
+        "palette": ["#FF5C5C", "#FFB020", "#2ECC71", "#00C2FF", "#7C5CFF"],
         "subtitle_style": "pop", "intensidad": 70,
         "emphasis": [], "fullscreen": [], "pills": [], "emojis": [],
     }
@@ -344,6 +345,7 @@ def plan_ad(words, duration: float, prompt_text: str = "") -> dict:
 Tienes la transcripción con timestamps (segundos) y los lineamientos. Diseña el PLAN
 de edición. Devuelve EXCLUSIVAMENTE JSON válido:
 {{"tema":"<tema>","accent":"#RRGGBB","secondary":"#RRGGBB",
+"palette":["#RRGGBB","#RRGGBB","#RRGGBB","#RRGGBB"],
 "subtitle_style":"pop|karaoke|box|punch|color","intensidad":<0-100>,
 "emphasis":["<palabras clave del texto a resaltar>"],
 "fullscreen":[{{"at":<seg>,"top":"<línea pequeña MAYÚS, opcional>","key":"<palabra/frase clave grande>","sub":"<subtítulo fino, opcional>","emoji":"<emoji grande acorde, opcional>"}}],
@@ -353,10 +355,14 @@ de edición. Devuelve EXCLUSIVAMENTE JSON válido:
 Reglas:
 - TODO sale del guion: el texto de cada gráfico es lo que dice la voz en ese momento.
 - "at"/"start"/"end" en segundos dentro de [0, {duration:.1f}], tomados de los timestamps.
-- fullscreen: 2-3 (uno al inicio ~0s, uno al centro, opcional antes del cierre).
+- fullscreen: 2-3 tarjetas a PANTALLA COMPLETA (cubren todo el cuadro). Una al inicio
+  (~0s), una al centro, opcional antes del cierre. VARÍA los títulos: cada tarjeta con
+  texto distinto, no repitas la misma palabra/estructura.
 - pills: 2-5 en las frases más relevantes; "end" cuando la voz termina la frase.
 - emojis: 3-6, contextuales (🥛 leche, 🌱 natural, 💪 salud, 💰 dinero, ✨ beneficio...).
-- accent vibrante de alto contraste acorde al tema; evita amarillo si el fondo es claro.
+- "palette": 4-6 colores vibrantes de alto contraste, **VARIADOS entre sí** (no todos el
+  mismo tono), cohesivos con el tema. Cada tarjeta y píldora usará un color DISTINTO de la
+  paleta para que la presentación NO sea monótona. Evita amarillo si el fondo es claro.
 - No satures: cada elemento con propósito.
 
 LINEAMIENTOS:
@@ -384,6 +390,10 @@ TRANSCRIPCIÓN (timestamp en segundos):
         v = str(data.get(k, "")).strip()
         if re.fullmatch(r"#[0-9A-Fa-f]{6}", v):
             plan[k] = v.upper()
+    pal = [str(c).strip().upper() for c in (data.get("palette") or [])
+           if re.fullmatch(r"#[0-9A-Fa-f]{6}", str(c).strip())]
+    if len(pal) >= 2:
+        plan["palette"] = pal[:6]
     st = str(data.get("subtitle_style", "")).strip().lower()
     plan["subtitle_style"] = st if st in _SUBTITLE_STYLES else "pop"
     try:

@@ -20,8 +20,10 @@ logger = logging.getLogger(__name__)
 FPS = 30
 
 _DEFAULT_PLAN = {
-    "accent": "#FFD400", "secondary": "#00E0FF", "subtitle_style": "pop",
-    "intensidad": 70, "emphasis": [], "fullscreen": [], "pills": [], "emojis": [],
+    "accent": "#FFD400", "secondary": "#00E0FF",
+    "palette": ["#FF5C5C", "#FFB020", "#2ECC71", "#00C2FF", "#7C5CFF"],
+    "subtitle_style": "pop", "intensidad": 70,
+    "emphasis": [], "fullscreen": [], "pills": [], "emojis": [],
 }
 
 
@@ -202,6 +204,8 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any }> = ({ v, c
   const frame = useCurrentFrame();
   const plan = v.plan || {};
   const accent = plan.accent || '#FFD400';
+  const palette = (plan.palette && plan.palette.length) ? plan.palette : [accent];
+  const pick = (i: number) => palette[((i % palette.length) + palette.length) % palette.length];
 
   const ctaFrames = Math.round(3 * fps);
   const ctaStart = durationInFrames - ctaFrames;
@@ -253,7 +257,7 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any }> = ({ v, c
         const dur = Math.max(1, Math.round((p.end - p.start) * fps));
         return (
           <Sequence key={`pill${i}`} from={from} durationInFrames={dur}>
-            <Pill text={p.text} emoji={p.emoji} accent={accent} />
+            <Pill text={p.text} emoji={p.emoji} accent={pick(i + 1)} />
           </Sequence>
         );
       })}
@@ -268,7 +272,7 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any }> = ({ v, c
       {/* Tarjetas full-screen (donde la IA dijo, según la voz). */}
       {cards.map((c: any, i: number) => (
         <Sequence key={`card${i}`} from={c.f} durationInFrames={Math.round(CARD_S * fps)}>
-          <Card top={c.top} keyText={c.key} sub={c.sub} emoji={c.emoji} accent={accent} />
+          <Card top={c.top} keyText={c.key} sub={c.sub} emoji={c.emoji} accent={pick(i)} />
         </Sequence>
       ))}
 
