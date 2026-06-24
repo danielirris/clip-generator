@@ -99,6 +99,20 @@ async def library_delete(name: str) -> JSONResponse:
     return JSONResponse({"tracks": [p.name for p in library.list_music()]})
 
 
+@app.get("/api/config/prompt")
+async def get_prompt() -> JSONResponse:
+    """Devuelve el prompt de edición de Remotion (editable)."""
+    return JSONResponse({"prompt": library.read_prompt()})
+
+
+@app.post("/api/config/prompt")
+async def set_prompt(payload: dict) -> JSONResponse:
+    """Guarda el prompt de edición de Remotion."""
+    text = str(payload.get("prompt", ""))
+    library.write_prompt(text)
+    return JSONResponse({"ok": True, "chars": len(text)})
+
+
 async def _save_upload(
     file: UploadFile, max_bytes: int, allowed: set[str] = ALLOWED_EXT
 ) -> tuple[Path, str]:

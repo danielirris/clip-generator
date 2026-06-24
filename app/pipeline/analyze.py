@@ -200,3 +200,89 @@ def analyze_hooks(videos_segments: list[list[Segment]]) -> list[Moment]:
 
     logger.info("OpenAI devolvió %d ganchos", len(moments))
     return moments
+
+
+# --------------------------------------------------------------------------- #
+# Director de estilo: entiende el tema y define la tipología de subtítulos
+# --------------------------------------------------------------------------- #
+_DEFAULT_STYLE = {
+    "tema": "",
+    "accent": "#FFD400",      # color de palabras resaltadas / activas
+    "secondary": "#00E0FF",
+    "emphasis": [],           # palabras clave a resaltar
+    "intensidad": 70,         # 0-100
+}
+
+
+def analyze_ad_style(transcript: str, prompt_text: str = "") -> dict:
+    """Pide a la IA un 'estilo' para los subtítulos en función del TEMA del video.
+
+    Devuelve un dict con: tema, accent (hex), secondary (hex), emphasis (lista de
+    palabras clave a resaltar) e intensidad (0-100). Ante cualquier fallo devuelve
+    un estilo por defecto (nunca rompe el render).
+    """
+    from openai import OpenAI  # import perezoso
+
+    if not transcript.strip():
+        return dict(_DEFAULT_STYLE)
+
+    settings = get_settings()
+    if not settings.openai_api_key:
+        return dict(_DEFAULT_STYLE)
+
+    client = OpenAI(api_key=settings.openai_api_key)
+    sys = (
+        "Eres director de arte de video para anuncios verticales (Reels/TikTok). "
+        "Defines la TIPOLOGÍA de subtítulos según el TEMA del contenido."
+    )
+    user = f"""\
+A partir de la transcripción y los lineamientos, define el estilo de los subtítulos.
+Devuelve EXCLUSIVAMENTE JSON válido con esta forma:
+{{"tema": "<tema en pocas palabras>", "accent": "<color hex llamativo acorde al tema>",
+"secondary": "<color hex secundario>", "emphasis": ["<5-15 palabras clave del texto a resaltar>"],
+"intensidad": <0-100>}}
+
+Reglas:
+- "accent"/"secondary" en formato #RRGGBB, alto contraste sobre texto blanco con contorno negro.
+- "emphasis": palabras EXACTAS que aparezcan en el texto (productos, beneficios, cifras, CTA).
+- El color y la intensidad deben pegar con el tema (salud=verde, lujo=dorado, tecnología=azul, etc.).
+
+LINEAMIENTOS:
+{prompt_text[:2000]}
+
+TRANSCRIPCIÓN:
+{transcript[:4000]}
+"""
+    try:
+        resp = with_retries(
+            lambda: client.chat.completions.create(
+                model=settings.openai_analyze_model,
+                messages=[{"role": "system", "content": sys},
+                          {"role": "user", "content": user}],
+                response_format={"type": "json_object"},
+                temperature=0.5,
+            ),
+            what="estilo OpenAI", attempts=2,
+        )
+        data = json.loads(resp.choices[0].message.content or "{}")
+    except Exception:  # noqa: BLE001
+        logger.warning("No se pudo obtener el estilo; se usa el de por defecto.")
+        return dict(_DEFAULT_STYLE)
+
+    style = dict(_DEFAULT_STYLE)
+    if isinstance(data, dict):
+        if isinstance(data.get("tema"), str):
+            style["tema"] = data["tema"][:80]
+        for key in ("accent", "secondary"):
+            v = str(data.get(key, "")).strip()
+            if re.fullmatch(r"#[0-9A-Fa-f]{6}", v):
+                style[key] = v.upper()
+        if isinstance(data.get("emphasis"), list):
+            style["emphasis"] = [str(w).strip() for w in data["emphasis"][:15] if str(w).strip()]
+        try:
+            style["intensidad"] = max(0, min(100, int(data.get("intensidad", 70))))
+        except (TypeError, ValueError):
+            pass
+    logger.info("Estilo IA: tema=%r accent=%s emphasis=%d",
+                style["tema"], style["accent"], len(style["emphasis"]))
+    return style

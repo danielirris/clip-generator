@@ -35,6 +35,19 @@
     </section>
 
     <section class="card">
+      <h2>✍️ Prompt de edición (Remotion)</h2>
+      <p style="color:var(--muted); font-size:.9rem; line-height:1.5">
+        Estas son las indicaciones que guían la edición del Apartado 2. La IA las
+        lee junto con la transcripción para <b>entender el tema</b> y decidir el
+        estilo de los subtítulos (color de acento, palabras a resaltar, intensidad).
+        Edítalas a tu gusto y guarda.
+      </p>
+      <textarea id="prompt" class="prompt-area" spellcheck="false"></textarea>
+      <button id="save-prompt">💾 Guardar prompt</button>
+      <p id="prompt-msg" class="progress-msg"></p>
+    </section>
+
+    <section class="card">
       <h2>🔊 Efectos de sonido (SFX)</h2>
       <p style="color:var(--muted); font-size:.9rem; line-height:1.5">
         Los SFX (whoosh, pop, ding) se generan automáticamente y se añaden con
@@ -75,6 +88,28 @@
         tracksEl.append(li);
       });
     }
+    // --- Prompt de edición ---
+    async function loadPrompt() {
+      const r = await fetch("/api/config/prompt");
+      const { prompt } = await r.json();
+      $("prompt").value = prompt || "";
+    }
+    $("save-prompt").addEventListener("click", async () => {
+      $("prompt-msg").textContent = "Guardando…";
+      try {
+        const r = await fetch("/api/config/prompt", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: $("prompt").value }),
+        });
+        const d = await r.json();
+        $("prompt-msg").textContent = `✅ Guardado (${d.chars} caracteres).`;
+      } catch (err) {
+        $("prompt-msg").textContent = "Error: " + err.message;
+      }
+    });
+    loadPrompt();
+
     $("lib").addEventListener("change", async (e) => {
       const files = e.target.files;
       if (!files.length) return;

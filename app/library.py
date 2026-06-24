@@ -12,11 +12,35 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from app.config import get_settings
+from app.config import BASE_DIR, get_settings
 
 logger = logging.getLogger(__name__)
 
 AUDIO_EXT = {".mp3", ".m4a", ".wav", ".aac", ".ogg"}
+
+
+# --------------------------------------------------------------------------- #
+# Prompt de edición de Remotion (editable, persistente en el volumen)
+# --------------------------------------------------------------------------- #
+def prompt_path() -> Path:
+    return get_settings().storage_dir / "PROMPT_EDICION.md"
+
+
+def read_prompt() -> str:
+    """Devuelve el prompt efectivo (el editado en el volumen, o el del repo)."""
+    p = prompt_path()
+    if p.exists():
+        return p.read_text(encoding="utf-8")
+    default = BASE_DIR / "remotion" / "PROMPT_EDICION.md"
+    return default.read_text(encoding="utf-8") if default.exists() else ""
+
+
+def write_prompt(text: str) -> None:
+    """Guarda el prompt editable en el volumen persistente."""
+    p = prompt_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text, encoding="utf-8")
+    logger.info("Prompt de edición actualizado (%d chars).", len(text))
 
 
 def _base() -> Path:

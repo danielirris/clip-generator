@@ -82,6 +82,7 @@ def build_ad_project(
     vol: float,
     vol_duck: float,
     sfx: dict[str, Path] | None = None,
+    style: dict | None = None,
 ) -> Path:
     """Escribe el proyecto Remotion del anuncio. Devuelve la carpeta del proyecto."""
     root = output_dir / "remotion-ad"
@@ -138,6 +139,7 @@ def build_ad_project(
         "cta": {"texto": cta_texto, "whatsapp": whatsapp},
         "musica": {"volumen": vol, "ducking": vol_duck},
         "sfx": sfx_names,
+        "style": style or {"accent": "#FFD400", "secondary": "#00E0FF", "emphasis": []},
         "videos": entries,
     }
     (root / "ad.json").write_text(json.dumps(ad, ensure_ascii=False, indent=2),
@@ -154,8 +156,8 @@ def build_ad_project(
     (root / "tsconfig.json").write_text(_TSCONFIG, encoding="utf-8")
     (root / "remotion.config.ts").write_text(_REMOTION_CONFIG, encoding="utf-8")
     (root / "README.md").write_text(_README, encoding="utf-8")
-    if _PROMPT_SRC.exists():
-        shutil.copy(_PROMPT_SRC, root / "PROMPT_EDICION.md")
+    from app import library  # import local para evitar ciclos al cargar
+    (root / "PROMPT_EDICION.md").write_text(library.read_prompt(), encoding="utf-8")
 
     logger.info("Proyecto Remotion (anuncio) generado: %s (%d videos)",
                 root, len(entries))
@@ -191,7 +193,7 @@ export const RemotionRoot: React.FC = () => {
           fps={ad.fps}
           width={v.width}
           height={v.height}
-          defaultProps={{ v, cta: ad.cta, musica: ad.musica, sfx: ad.sfx }}
+          defaultProps={{ v, cta: ad.cta, musica: ad.musica, sfx: ad.sfx, style: ad.style }}
         />
       ))}
     </>
@@ -210,7 +212,7 @@ import { Intro } from './Intro';
 import { Highlight } from './Highlight';
 
 // Anuncio de un video. Mantiene SIEMPRE el audio original (<Video> lo incluye).
-export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any }> = ({ v, cta, musica, sfx }) => {
+export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any; style: any }> = ({ v, cta, musica, sfx, style }) => {
   const { fps, durationInFrames } = useVideoConfig();
   const frame = useCurrentFrame();
 
@@ -275,14 +277,14 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any }> = ({ v, c
 
       {/* Subtítulos sincronizados (se ocultan durante los momentos full-screen). */}
       {!hlOn && frame >= introFrames && frame < ctaStart ? (
-        <Subtitles words={v.words} />
+        <Subtitles words={v.words} style={style} />
       ) : null}
 
       {/* Full-screen #1: intro con el gancho. */}
-      {frame < introFrames ? <Intro words={v.words} /> : null}
+      {frame < introFrames ? <Intro words={v.words} style={style} /> : null}
 
       {/* Full-screen #2: frase clave a media reproducción. */}
-      {hlOn ? <Highlight text={hl.text} startFrame={hlStart} /> : null}
+      {hlOn ? <Highlight text={hl.text} startFrame={hlStart} style={style} /> : null}
 
       {/* Full-screen #3: CTA final con botón a WhatsApp. */}
       {frame >= ctaStart ? (
@@ -318,33 +320,46 @@ function buildLines(words: W[]): W[][] {
   return lines;
 }
 
-export const Subtitles: React.FC<{ words: W[] }> = ({ words }) => {
+const clean = (s: string) => s.toLowerCase().replace(/[^\\p{L}\\p{N}]/gu, '');
+
+export const Subtitles: React.FC<{ words: W[]; style?: any }> = ({ words, style }) => {
   const { fps, width } = useVideoConfig();
   const frame = useCurrentFrame();
   const t = frame / fps;
   const lines = useMemo(() => buildLines(words || []), [words]);
+  const accent = style?.accent || '#FFD400';
+  const intensidad = (style?.intensidad ?? 70) / 100;
+  const emphasis = useMemo(
+    () => new Set((style?.emphasis || []).map((w: string) => clean(w))),
+    [style]
+  );
 
   const line = lines.find((l) => t >= l[0].start && t <= l[l.length - 1].end);
   if (!line) return null;
 
   const activeIdx = line.findIndex((w) => t >= w.start && t < w.end);
-  const fontSize = Math.round(width * 0.07);
+  const fontSize = Math.round(width * (0.07 + 0.012 * intensidad));
 
   return (
     <div
       style={{
         position: 'absolute',
         left: '8%', right: '8%', bottom: '15%',          // safe-area
-        display: 'flex', flexWrap: 'wrap', gap: '0.08em 0.32em',
+        display: 'flex', flexWrap: 'wrap', gap: '0.16em 0.3em',
         justifyContent: 'center', alignItems: 'center', textAlign: 'center',
       }}
     >
       {line.map((w, i) => {
         const active = i === activeIdx;
+        const isKey = emphasis.has(clean(w.word));
         const pop = spring({
           frame: frame - Math.round(w.start * fps), fps,
-          config: { damping: 14, mass: 0.5 },
+          config: { damping: 13, mass: 0.5 },
         });
+        const p = Math.min(1, pop);
+        // Palabra clave: resaltada con pastilla de color; activa: color de acento.
+        const color = isKey ? '#0b0b0b' : active ? accent : '#FFFFFF';
+        const scale = (isKey ? 1.08 : 1) * (0.84 + 0.16 * p) * (active ? 1.06 : 1);
         return (
           <span
             key={i}
@@ -352,13 +367,16 @@ export const Subtitles: React.FC<{ words: W[] }> = ({ words }) => {
               fontFamily: 'Arial, Helvetica, sans-serif',
               fontWeight: 900,
               fontSize,
-              lineHeight: 1.1,
-              color: active ? '#FFD400' : '#FFFFFF',
-              WebkitTextStroke: `${Math.max(2, fontSize * 0.06)}px #000`,
+              lineHeight: 1.18,
+              color,
+              background: isKey ? accent : 'transparent',
+              padding: isKey ? '0.02em 0.22em' : 0,
+              borderRadius: isKey ? '0.18em' : 0,
+              WebkitTextStroke: isKey ? '0' : `${Math.max(2, fontSize * 0.06)}px #000`,
               paintOrder: 'stroke fill',
-              textShadow: '0 6px 18px rgba(0,0,0,0.6)',
-              transform: `translateY(${(1 - Math.min(1, pop)) * 14}px) scale(${0.86 + 0.14 * Math.min(1, pop)})`,
-              opacity: Math.min(1, pop),
+              textShadow: isKey ? '0 6px 16px rgba(0,0,0,0.45)' : '0 6px 18px rgba(0,0,0,0.6)',
+              transform: `translateY(${(1 - p) * 16}px) scale(${scale})`,
+              opacity: p,
               display: 'inline-block',
             }}
           >
@@ -420,7 +438,7 @@ import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } fr
 
 // Momento full-screen a media reproducción: una frase clave grande que rompe el
 // ritmo y capta atención. Entra y sale en ~1.3s.
-export const Highlight: React.FC<{ text: string; startFrame: number }> = ({ text, startFrame }) => {
+export const Highlight: React.FC<{ text: string; startFrame: number; style?: any }> = ({ text, startFrame, style }) => {
   const { fps, width } = useVideoConfig();
   const f = useCurrentFrame() - startFrame;
   const total = Math.round(1.3 * fps);
@@ -429,15 +447,16 @@ export const Highlight: React.FC<{ text: string; startFrame: number }> = ({ text
     extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
   });
   const o = Math.min(enter, out);
+  const accent = style?.accent || '#FFD400';
 
   return (
     <AbsoluteFill style={{ backgroundColor: `rgba(10,10,14,${0.93 * o})`, justifyContent: 'center', alignItems: 'center' }}>
       <div style={{
         margin: '0 8%', textAlign: 'center', opacity: o,
         transform: `scale(${0.82 + 0.18 * enter})`,
-        color: '#fff', fontFamily: 'Arial, sans-serif', fontWeight: 900,
-        fontSize: Math.round(width * 0.088), lineHeight: 1.1,
-        WebkitTextStroke: '3px #000', paintOrder: 'stroke fill',
+        color: accent, fontFamily: 'Arial, sans-serif', fontWeight: 900,
+        fontSize: Math.round(width * 0.092), lineHeight: 1.1,
+        WebkitTextStroke: '4px #000', paintOrder: 'stroke fill',
       }}>{text}</div>
     </AbsoluteFill>
   );
