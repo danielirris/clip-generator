@@ -8,7 +8,7 @@ import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -244,11 +244,23 @@ async def ad_asset(job_id: str, path: str) -> FileResponse:
     return FileResponse(path=str(p))
 
 
-@app.post("/api/jobs/{job_id}/render")
-async def render_ad(job_id: str) -> JSONResponse:
-    """Dispara el render del proyecto Remotion ya generado (modo anuncio)."""
+@app.post("/api/jobs/{job_id}/ad.json")
+async def save_ad_json(job_id: str, payload: dict = Body(...)) -> JSONResponse:
+    """Guarda el ad.json editado en el preview (textos, tiempos, emojis, etc.)."""
     if not manager.get(job_id):
         raise HTTPException(status_code=404, detail="Job no encontrado")
+    if not manager.save_ad_json(job_id, payload):
+        raise HTTPException(status_code=400, detail="ad.json inválido")
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/jobs/{job_id}/render")
+async def render_ad(job_id: str, payload: dict | None = Body(None)) -> JSONResponse:
+    """Dispara el render. Si se envía 'ad', renderiza con esa versión editada."""
+    if not manager.get(job_id):
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    if payload and isinstance(payload.get("ad"), dict):
+        manager.save_ad_json(job_id, payload["ad"])
     if not manager.request_render(job_id):
         raise HTTPException(status_code=409, detail="No se puede renderizar este trabajo")
     return JSONResponse({"ok": True})

@@ -186,8 +186,92 @@ function Ad({ v, cta, musica, sfx, assetBase }) {
 }
 
 // --------------------------------------------------------------------------- //
-// App de preview
+// App de preview + editor en vivo
 // --------------------------------------------------------------------------- //
+const FLD = { width: '100%', padding: '7px 9px', background: '#0f1115', color: '#e8eaed',
+  border: '1px solid #2a2f3a', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' };
+const BTN_SM = { background: 'transparent', color: '#9aa0aa', border: '1px solid #39404d',
+  borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 12 };
+
+const Txt = ({ value, onChange, ph }) => (
+  <input value={value || ''} placeholder={ph} onChange={(e) => onChange(e.target.value)} style={FLD} />
+);
+const Num = ({ value, onChange }) => (
+  <input type="number" step="0.1" value={value ?? 0} onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+    style={{ ...FLD, width: 80 }} />
+);
+const Row = ({ children }) => <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>{children}</div>;
+const Box = ({ title, children, onAdd }) => (
+  <div style={{ border: '1px solid #262a33', borderRadius: 10, padding: 12, marginBottom: 12 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+      <b style={{ color: '#fff', fontSize: 14 }}>{title}</b>
+      {onAdd ? <button style={BTN_SM} onClick={onAdd}>＋ añadir</button> : null}
+    </div>
+    {children}
+  </div>
+);
+
+function Editor({ video, cta, mutate, vi }) {
+  const plan = video.plan || {};
+  const m = (fn) => mutate(fn);
+  return (
+    <div style={{ marginTop: 14 }}>
+      <Box title="🎬 Tarjetas full-screen"
+        onAdd={() => m((c) => c.videos[vi].plan.fullscreen.push({ at: 1, top: '', key: 'TÍTULO', sub: '', emoji: '✨' }))}>
+        {(plan.fullscreen || []).map((card, ci) => (
+          <div key={ci} style={{ borderTop: ci ? '1px solid #1f232b' : 'none', paddingTop: ci ? 8 : 0, marginBottom: 8 }}>
+            <Row>
+              <span style={{ color: '#9aa0aa', fontSize: 12 }}>seg</span>
+              <Num value={card.at} onChange={(x) => m((c) => { c.videos[vi].plan.fullscreen[ci].at = x; })} />
+              <Txt value={card.emoji} ph="emoji" onChange={(x) => m((c) => { c.videos[vi].plan.fullscreen[ci].emoji = x; })} />
+              <button style={BTN_SM} onClick={() => m((c) => c.videos[vi].plan.fullscreen.splice(ci, 1))}>🗑️</button>
+            </Row>
+            <Txt value={card.top} ph="línea pequeña (opcional)" onChange={(x) => m((c) => { c.videos[vi].plan.fullscreen[ci].top = x; })} />
+            <div style={{ height: 6 }} />
+            <Txt value={card.key} ph="TÍTULO grande" onChange={(x) => m((c) => { c.videos[vi].plan.fullscreen[ci].key = x; })} />
+            <div style={{ height: 6 }} />
+            <Txt value={card.sub} ph="subtítulo (opcional)" onChange={(x) => m((c) => { c.videos[vi].plan.fullscreen[ci].sub = x; })} />
+          </div>
+        ))}
+      </Box>
+
+      <Box title="💊 Píldoras"
+        onAdd={() => m((c) => c.videos[vi].plan.pills.push({ start: 1, end: 3, text: 'TEXTO', emoji: '✨' }))}>
+        {(plan.pills || []).map((p, pi) => (
+          <div key={pi} style={{ marginBottom: 8 }}>
+            <Row>
+              <Num value={p.start} onChange={(x) => m((c) => { c.videos[vi].plan.pills[pi].start = x; })} />
+              <span style={{ color: '#9aa0aa', fontSize: 12 }}>→</span>
+              <Num value={p.end} onChange={(x) => m((c) => { c.videos[vi].plan.pills[pi].end = x; })} />
+              <Txt value={p.emoji} ph="emoji" onChange={(x) => m((c) => { c.videos[vi].plan.pills[pi].emoji = x; })} />
+              <button style={BTN_SM} onClick={() => m((c) => c.videos[vi].plan.pills.splice(pi, 1))}>🗑️</button>
+            </Row>
+            <Txt value={p.text} ph="TEXTO de la píldora" onChange={(x) => m((c) => { c.videos[vi].plan.pills[pi].text = x; })} />
+          </div>
+        ))}
+      </Box>
+
+      <Box title="😀 Emojis"
+        onAdd={() => m((c) => c.videos[vi].plan.emojis.push({ at: 1, emoji: '✨' }))}>
+        {(plan.emojis || []).map((e, ei) => (
+          <Row key={ei}>
+            <span style={{ color: '#9aa0aa', fontSize: 12 }}>seg</span>
+            <Num value={e.at} onChange={(x) => m((c) => { c.videos[vi].plan.emojis[ei].at = x; })} />
+            <Txt value={e.emoji} ph="emoji" onChange={(x) => m((c) => { c.videos[vi].plan.emojis[ei].emoji = x; })} />
+            <button style={BTN_SM} onClick={() => m((c) => c.videos[vi].plan.emojis.splice(ei, 1))}>🗑️</button>
+          </Row>
+        ))}
+      </Box>
+
+      <Box title="📣 CTA (cierre)">
+        <Txt value={cta.texto} ph="Texto del CTA" onChange={(x) => m((c) => { c.cta.texto = x; })} />
+        <div style={{ height: 6 }} />
+        <Txt value={cta.whatsapp} ph="https://wa.me/57XXXXXXXXXX" onChange={(x) => m((c) => { c.cta.whatsapp = x; })} />
+      </Box>
+    </div>
+  );
+}
+
 function App() {
   const jobId = window.JOB_ID;
   const [data, setData] = useState(null);
@@ -203,11 +287,15 @@ function App() {
   }, [jobId]);
 
   const assetBase = `/api/jobs/${jobId}/r`;
+  const mutate = (fn) => setData((d) => { const c = structuredClone(d); fn(c); return c; });
 
   async function render() {
-    setRendering('Renderizando el video final… (puede tardar)');
+    setRendering('Enviando tus cambios y renderizando… (puede tardar)');
     try {
-      await fetch(`/api/jobs/${jobId}/render`, { method: 'POST' });
+      await fetch(`/api/jobs/${jobId}/render`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ad: data }),
+      });
       for (let i = 0; i < 600; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         const job = await (await fetch(`/api/jobs/${jobId}`)).json();
@@ -222,11 +310,12 @@ function App() {
   if (!data) return <div style={{ color: '#9aa0aa', padding: 30 }}>Cargando previsualización…</div>;
 
   return (
-    <div style={{ maxWidth: 420, margin: '0 auto', padding: '24px 16px', fontFamily: 'system-ui, sans-serif' }}>
-      <h1 style={{ color: '#fff', fontSize: 22 }}>👁️ Previsualización</h1>
-      <p style={{ color: '#9aa0aa', fontSize: 14 }}>Así quedará el anuncio (en vivo, sin renderizar). Cuando te guste, dale a renderizar el video final.</p>
-      {data.videos.map((v) => (
-        <div key={v.id} style={{ marginBottom: 20 }}>
+    <div style={{ maxWidth: 460, margin: '0 auto', padding: '24px 16px', fontFamily: 'system-ui, sans-serif' }}>
+      <h1 style={{ color: '#fff', fontSize: 22 }}>✏️ Editar y previsualizar</h1>
+      <p style={{ color: '#9aa0aa', fontSize: 14 }}>Edita textos, tiempos y emojis abajo: el reproductor se actualiza <b>en vivo</b>. Cuando te guste, renderiza el video final.</p>
+
+      {data.videos.map((v, vi) => (
+        <div key={v.id} style={{ marginBottom: 24 }}>
           <Player
             component={Ad}
             inputProps={{ v, cta: data.cta, musica: data.musica, sfx: data.sfx, assetBase }}
@@ -235,9 +324,9 @@ function App() {
             compositionWidth={v.width}
             compositionHeight={v.height}
             style={{ width: '100%', borderRadius: 12, overflow: 'hidden', background: '#000' }}
-            controls
-            loop
+            controls loop
           />
+          <Editor video={v} cta={data.cta} mutate={mutate} vi={vi} />
         </div>
       ))}
 
@@ -245,12 +334,13 @@ function App() {
         <div style={{ marginTop: 16 }}>
           <p style={{ color: '#2ecc71' }}>✅ Video final listo.</p>
           {clips.map((u, i) => <a key={i} href={u} style={{ display: 'block', color: '#00d4ff', marginBottom: 6 }}>⬇️ Descargar anuncio {i + 1}</a>)}
+          <button onClick={() => setClips([])} style={{ ...BTN_SM, marginTop: 8 }}>✏️ Volver a editar</button>
         </div>
       ) : (
         <button onClick={render} disabled={!!rendering}
           style={{ width: '100%', padding: 14, borderRadius: 10, border: 'none', fontWeight: 700, cursor: 'pointer',
             background: 'linear-gradient(90deg,#7c5cff,#00d4ff)', color: '#fff', fontSize: 16 }}>
-          🎬 Renderizar video final
+          🎬 Renderizar video final (con mis cambios)
         </button>
       )}
       {rendering ? <p style={{ color: '#9aa0aa', marginTop: 10 }}>{rendering}</p> : null}

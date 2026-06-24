@@ -269,6 +269,15 @@ class JobManager:
             return proj / "ad.json"
         return None
 
+    def save_ad_json(self, job_id: str, data: Any) -> bool:
+        """Sobrescribe el ad.json del proyecto con la versión editada en el preview."""
+        proj = self.ad_project_dir(job_id)
+        if not proj or not isinstance(data, dict) or "videos" not in data:
+            return False
+        (proj / "ad.json").write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        return True
+
     def ad_asset_path(self, job_id: str, rel: str) -> Path | None:
         """Ruta de un asset del proyecto (public/<rel>), validada contra escapes."""
         proj = self.ad_project_dir(job_id)
