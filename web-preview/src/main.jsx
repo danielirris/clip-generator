@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Player } from '@remotion/player';
 import {
-  AbsoluteFill, Audio, Sequence, Video, interpolate, spring,
+  AbsoluteFill, Audio, Img, Sequence, Video, interpolate, spring,
   useCurrentFrame, useVideoConfig,
 } from 'remotion';
 import { loadFont } from '@remotion/google-fonts/Anton';
@@ -177,6 +177,16 @@ function Ad({ v, cta, musica, sfx, assetBase }) {
       {(plan.emojis || []).map((e, i) => (
         <Sequence key={`em${i}`} from={Math.round(e.at * fps)} durationInFrames={Math.round(1.0 * fps)}><EmojiPop emoji={e.emoji} idx={i} /></Sequence>
       ))}
+      {(plan.overlays || []).map((o, i) => {
+        const isVid = /\.(mp4|mov|webm|m4v)$/i.test(o.file || '');
+        return (
+          <Sequence key={`ov${i}`} from={Math.round((o.at || 0) * fps)} durationInFrames={Math.max(1, Math.round((o.dur || 3) * fps))}>
+            <div style={{ position: 'absolute', left: `${o.x ?? 30}%`, top: `${o.y ?? 12}%`, width: `${o.w ?? 40}%` }}>
+              {isVid ? <Video src={src(o.file)} style={{ width: '100%', borderRadius: 8 }} /> : <Img src={src(o.file)} style={{ width: '100%' }} />}
+            </div>
+          </Sequence>
+        );
+      })}
       {cards.map((c, i) => (
         <Sequence key={`card${i}`} from={c.f} durationInFrames={Math.round(CARD_S * fps)}><Card top={c.top} keyText={c.key} sub={c.sub} emoji={c.emoji} accent={pick(i)} /></Sequence>
       ))}
@@ -211,11 +221,76 @@ const Box = ({ title, children, onAdd }) => (
   </div>
 );
 
-function Editor({ video, cta, mutate, vi }) {
+function Timeline({ video, mutate, vi }) {
+  const ref = React.useRef(null);
+  const plan = video.plan || {};
+  const dur = video.duration || 1;
+  const drag = (idx, e) => {
+    e.preventDefault();
+    const move = (ev) => {
+      const r = ref.current.getBoundingClientRect();
+      const x = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+      mutate((c) => { c.videos[vi].plan.overlays[idx].at = Math.round(x * dur * 10) / 10; });
+    };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  };
+  return (
+    <div>
+      <div ref={ref} style={{ position: 'relative', height: 56, background: '#0f1115', border: '1px solid #2a2f3a', borderRadius: 8, overflow: 'hidden' }}>
+        {(plan.fullscreen || []).map((c, i) => (
+          <div key={'c' + i} title="tarjeta" style={{ position: 'absolute', left: `${(c.at / dur) * 100}%`, top: 2, width: 3, height: 16, background: '#7c5cff' }} />
+        ))}
+        {(plan.pills || []).map((p, i) => (
+          <div key={'p' + i} title="píldora" style={{ position: 'absolute', left: `${(p.start / dur) * 100}%`, width: `${Math.max(2, ((p.end - p.start) / dur) * 100)}%`, top: 20, height: 8, background: 'rgba(46,204,113,0.5)', borderRadius: 4 }} />
+        ))}
+        {(plan.overlays || []).map((o, i) => (
+          <div key={'o' + i} onPointerDown={(e) => drag(i, e)} title="arrastra para mover"
+            style={{ position: 'absolute', left: `${(o.at / dur) * 100}%`, width: `${Math.max(4, ((o.dur || 3) / dur) * 100)}%`, top: 32, height: 20, background: '#00d4ff', borderRadius: 4, cursor: 'grab', border: '1px solid #0a3a44', boxSizing: 'border-box', fontSize: 10, color: '#012', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>overlay {i + 1}</div>
+        ))}
+      </div>
+      <div style={{ color: '#9aa0aa', fontSize: 11, marginTop: 4 }}>
+        ⏱️ Línea de tiempo (0–{dur.toFixed(1)}s) · <span style={{ color: '#7c5cff' }}>▮ tarjetas</span> · <span style={{ color: '#2ecc71' }}>▬ píldoras</span> · <span style={{ color: '#00d4ff' }}>▬ overlays (arrástralos)</span>
+      </div>
+    </div>
+  );
+}
+
+function Editor({ video, cta, mutate, vi, uploadOverlay }) {
   const plan = video.plan || {};
   const m = (fn) => mutate(fn);
   return (
     <div style={{ marginTop: 14 }}>
+      <Timeline video={video} mutate={mutate} vi={vi} />
+      <div style={{ height: 12 }} />
+
+      <Box title="🖼️ Overlays (encima del video)">
+        <label style={{ ...BTN_SM, display: 'inline-block', marginBottom: 8 }}>
+          ＋ Subir imagen/video
+          <input type="file" accept="image/*,video/*" style={{ display: 'none' }}
+            onChange={(e) => { if (e.target.files[0]) uploadOverlay(vi, e.target.files[0]); e.target.value = ''; }} />
+        </label>
+        {(plan.overlays || []).map((o, oi) => (
+          <div key={oi} style={{ borderTop: oi ? '1px solid #1f232b' : 'none', paddingTop: oi ? 8 : 0, marginBottom: 8 }}>
+            <div style={{ color: '#9aa0aa', fontSize: 12, marginBottom: 4 }}>📎 {o.file} <button style={{ ...BTN_SM, float: 'right' }} onClick={() => m((c) => c.videos[vi].plan.overlays.splice(oi, 1))}>🗑️</button></div>
+            <Row>
+              <span style={{ color: '#9aa0aa', fontSize: 12 }}>seg</span>
+              <Num value={o.at} onChange={(x) => m((c) => { c.videos[vi].plan.overlays[oi].at = x; })} />
+              <span style={{ color: '#9aa0aa', fontSize: 12 }}>dur</span>
+              <Num value={o.dur} onChange={(x) => m((c) => { c.videos[vi].plan.overlays[oi].dur = x; })} />
+            </Row>
+            <Row>
+              <span style={{ color: '#9aa0aa', fontSize: 12 }}>x%</span>
+              <Num value={o.x} onChange={(x) => m((c) => { c.videos[vi].plan.overlays[oi].x = x; })} />
+              <span style={{ color: '#9aa0aa', fontSize: 12 }}>y%</span>
+              <Num value={o.y} onChange={(x) => m((c) => { c.videos[vi].plan.overlays[oi].y = x; })} />
+              <span style={{ color: '#9aa0aa', fontSize: 12 }}>ancho%</span>
+              <Num value={o.w} onChange={(x) => m((c) => { c.videos[vi].plan.overlays[oi].w = x; })} />
+            </Row>
+          </div>
+        ))}
+      </Box>
+
       <Box title="🎬 Tarjetas full-screen"
         onAdd={() => m((c) => c.videos[vi].plan.fullscreen.push({ at: 1, top: '', key: 'TÍTULO', sub: '', emoji: '✨' }))}>
         {(plan.fullscreen || []).map((card, ci) => (
@@ -289,6 +364,18 @@ function App() {
   const assetBase = `/api/jobs/${jobId}/r`;
   const mutate = (fn) => setData((d) => { const c = structuredClone(d); fn(c); return c; });
 
+  async function uploadOverlay(vi, file) {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await fetch(`/api/jobs/${jobId}/overlay`, { method: 'POST', body: fd });
+    if (!r.ok) { alert('No se pudo subir el archivo'); return; }
+    const { file: name } = await r.json();
+    mutate((c) => {
+      if (!c.videos[vi].plan.overlays) c.videos[vi].plan.overlays = [];
+      c.videos[vi].plan.overlays.push({ file: name, at: 1, dur: 3, x: 30, y: 12, w: 40 });
+    });
+  }
+
   async function render() {
     setRendering('Enviando tus cambios y renderizando… (puede tardar)');
     try {
@@ -326,7 +413,7 @@ function App() {
             style={{ width: '100%', borderRadius: 12, overflow: 'hidden', background: '#000' }}
             controls loop
           />
-          <Editor video={v} cta={data.cta} mutate={mutate} vi={vi} />
+          <Editor video={v} cta={data.cta} mutate={mutate} vi={vi} uploadOverlay={uploadOverlay} />
         </div>
       ))}
 

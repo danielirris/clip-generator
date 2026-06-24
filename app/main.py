@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import logging
 import tempfile
+import uuid
 import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -30,6 +31,8 @@ TEMPLATES = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 
 ALLOWED_EXT = {".mp4", ".mov", ".mkv"}
 ALLOWED_AUDIO_EXT = {".mp3", ".m4a", ".wav", ".aac", ".ogg"}
+ALLOWED_OVERLAY_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif",
+                       ".mp4", ".mov", ".webm", ".m4v"}
 
 
 @asynccontextmanager
@@ -242,6 +245,36 @@ async def ad_asset(job_id: str, path: str) -> FileResponse:
     if not p:
         raise HTTPException(status_code=404, detail="Asset no encontrado")
     return FileResponse(path=str(p))
+
+
+@app.post("/api/jobs/{job_id}/overlay")
+async def upload_overlay(job_id: str, file: UploadFile = File(...)) -> JSONResponse:
+    """Sube una imagen/video al proyecto para ponerlo encima (overlay)."""
+    proj = manager.ad_project_dir(job_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_OVERLAY_EXT:
+        raise HTTPException(status_code=400, detail="Formato no soportado para overlay")
+    overlays = proj / "public" / "overlays"
+    overlays.mkdir(parents=True, exist_ok=True)
+    name = f"ov_{uuid.uuid4().hex[:8]}{ext}"
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    size = 0
+    dest = overlays / name
+    try:
+        with open(dest, "wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > max_bytes:
+                    raise HTTPException(status_code=413, detail="Archivo demasiado grande")
+                out.write(chunk)
+    except HTTPException:
+        dest.unlink(missing_ok=True)
+        raise
+    finally:
+        await file.close()
+    return JSONResponse({"file": f"overlays/{name}"})
 
 
 @app.post("/api/jobs/{job_id}/ad.json")

@@ -23,7 +23,7 @@ _DEFAULT_PLAN = {
     "accent": "#FFD400", "secondary": "#00E0FF",
     "palette": ["#FF5C5C", "#FFB020", "#2ECC71", "#00C2FF", "#7C5CFF"],
     "subtitle_style": "pop", "intensidad": 70,
-    "emphasis": [], "fullscreen": [], "pills": [], "emojis": [],
+    "emphasis": [], "fullscreen": [], "pills": [], "emojis": [], "overlays": [],
 }
 
 
@@ -187,7 +187,7 @@ export const RemotionRoot: React.FC = () => (
 _AD_TSX = """\
 import React from 'react';
 import {
-  AbsoluteFill, Audio, Sequence, Video, interpolate, staticFile,
+  AbsoluteFill, Audio, Img, Sequence, Video, interpolate, staticFile,
   useCurrentFrame, useVideoConfig,
 } from 'remotion';
 import { fontFamily } from './font';
@@ -268,6 +268,19 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any }> = ({ v, c
           <EmojiPop emoji={e.emoji} idx={i} />
         </Sequence>
       ))}
+
+      {/* Overlays subidos por el usuario (imagen/video encima). */}
+      {(plan.overlays || []).map((o: any, i: number) => {
+        const isVid = /\\.(mp4|mov|webm|m4v)$/i.test(o.file || '');
+        return (
+          <Sequence key={`ov${i}`} from={Math.round((o.at || 0) * fps)} durationInFrames={Math.max(1, Math.round((o.dur || 3) * fps))}>
+            <div style={{ position: 'absolute', left: `${o.x ?? 30}%`, top: `${o.y ?? 12}%`, width: `${o.w ?? 40}%` }}>
+              {isVid ? <Video src={staticFile(o.file)} style={{ width: '100%', borderRadius: 8 }} />
+                : <Img src={staticFile(o.file)} style={{ width: '100%' }} />}
+            </div>
+          </Sequence>
+        );
+      })}
 
       {/* Tarjetas full-screen (donde la IA dijo, según la voz). */}
       {cards.map((c: any, i: number) => (
