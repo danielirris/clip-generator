@@ -258,7 +258,7 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any }> = ({ v, c
       {/* Tarjetas full-screen (donde la IA dijo, según la voz). */}
       {cards.map((c: any, i: number) => (
         <Sequence key={`card${i}`} from={c.f} durationInFrames={Math.round(CARD_S * fps)}>
-          <Card top={c.top} keyText={c.key} sub={c.sub} accent={accent} />
+          <Card top={c.top} keyText={c.key} sub={c.sub} emoji={c.emoji} accent={accent} />
         </Sequence>
       ))}
 
@@ -308,7 +308,7 @@ export const Subtitles: React.FC<{ words: W[]; plan?: any }> = ({ words, plan })
   return (
     <div style={{
       position: 'absolute', left: '8%', right: '8%', bottom: '15%',
-      display: 'flex', flexWrap: 'wrap', gap: '0.16em 0.3em',
+      display: 'flex', flexWrap: 'wrap', gap: '0.28em 0.75em',
       justifyContent: 'center', alignItems: 'center', textAlign: 'center',
     }}>
       {line.map((w, i) => {
@@ -327,7 +327,7 @@ export const Subtitles: React.FC<{ words: W[]; plan?: any }> = ({ words, plan })
         return (
           <span key={i} style={{
             fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 900, fontSize,
-            lineHeight: 1.18, color,
+            textTransform: 'uppercase', lineHeight: 1.18, color,
             background: box ? accent : 'transparent',
             padding: box ? '0.02em 0.22em' : 0, borderRadius: box ? '0.18em' : 0,
             WebkitTextStroke: box ? '0' : `${Math.max(2, fontSize * 0.06)}px #000`,
@@ -347,28 +347,49 @@ _CARD_TSX = """\
 import React from 'react';
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 
-// Tarjeta de marca full-screen: fondo de acento + título/clave/sub. ~2s.
-export const Card: React.FC<{ top?: string; keyText: string; sub?: string; accent: string }> = ({ top, keyText, sub, accent }) => {
-  const { fps, width, durationInFrames } = useVideoConfig();
+// Tarjeta de marca full-screen, CENTRADA, con emoji y animaciones escalonadas. ~2s.
+function darken(hex: string, k: number) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.round(((n >> 16) & 255) * k), g = Math.round(((n >> 8) & 255) * k), b = Math.round((n & 255) * k);
+  return `rgb(${r},${g},${b})`;
+}
+
+export const Card: React.FC<{ top?: string; keyText: string; sub?: string; emoji?: string; accent: string }> = ({ top, keyText, sub, emoji, accent }) => {
+  const { fps, width, height, durationInFrames } = useVideoConfig();
   const f = useCurrentFrame();
   const enter = spring({ frame: f, fps, config: { damping: 16, mass: 0.6 } });
   const out = interpolate(f, [durationInFrames - 7, durationInFrames], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const o = Math.min(enter, out);
-  const keyPop = spring({ frame: f - 5, fps, config: { damping: 12, mass: 0.5 } });
+  // Entradas escalonadas: emoji -> top -> key (punch) -> sub.
+  const emo = spring({ frame: f - 2, fps, config: { damping: 9, mass: 0.5 } });
+  const topIn = spring({ frame: f - 6, fps, config: { damping: 18 } });
+  const keyPop = spring({ frame: f - 9, fps, config: { damping: 11, mass: 0.5 } });
+  const subIn = spring({ frame: f - 14, fps, config: { damping: 18 } });
+  const bgScale = interpolate(enter, [0, 1], [1.15, 1]);     // fondo entra con zoom
+  const pulse = 1 + 0.02 * Math.sin(f / fps * 5);             // micro-movimiento del key
+  const float = Math.sin(f / fps * 3) * 6;
+  const dark = darken(accent, 0.45);
 
   return (
-    <AbsoluteFill style={{
-      justifyContent: 'flex-end', alignItems: 'center', opacity: o,
-      background: `radial-gradient(60% 50% at 50% 45%, ${accent}F2, ${accent}D9)`,
-    }}>
-      <div style={{ margin: '0 8% 22%', textAlign: 'center', transform: `translateY(${(1 - enter) * 40}px)` }}>
-        {top ? <div style={{ color: '#ffffffcc', fontFamily: 'Arial', fontWeight: 800, letterSpacing: 1,
-          fontSize: Math.round(width * 0.04), textTransform: 'uppercase' }}>{top}</div> : null}
-        <div style={{ color: '#fff', fontFamily: 'Arial', fontWeight: 900, lineHeight: 1.05,
-          fontSize: Math.round(width * 0.12), WebkitTextStroke: '2px rgba(0,0,0,0.35)', paintOrder: 'stroke fill',
-          transform: `scale(${0.7 + 0.3 * Math.min(1, keyPop)})` }}>{keyText}</div>
-        {sub ? <div style={{ color: '#ffffffe6', fontFamily: 'Arial', fontWeight: 600, marginTop: 10,
-          fontSize: Math.round(width * 0.042) }}>{sub}</div> : null}
+    <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center', opacity: o, overflow: 'hidden' }}>
+      <AbsoluteFill style={{
+        transform: `scale(${bgScale})`,
+        background: `radial-gradient(70% 55% at 50% 42%, ${accent}, ${dark})`,
+      }} />
+      <div style={{ margin: '0 7%', textAlign: 'center', transform: `translateY(${float}px)` }}>
+        {emoji ? <div style={{ fontSize: Math.round(width * 0.18), lineHeight: 1,
+          transform: `translateY(${(1 - emo) * 40}px) scale(${0.3 + 0.7 * Math.min(1, emo)})`,
+          filter: 'drop-shadow(0 10px 18px rgba(0,0,0,0.45))', marginBottom: 8 }}>{emoji}</div> : null}
+        {top ? <div style={{ color: '#ffffffe6', fontFamily: 'Arial', fontWeight: 800, letterSpacing: 2,
+          fontSize: Math.round(width * 0.045), textTransform: 'uppercase', opacity: topIn,
+          transform: `translateY(${(1 - topIn) * 20}px)` }}>{top}</div> : null}
+        <div style={{ color: '#fff', fontFamily: 'Arial', fontWeight: 900, lineHeight: 1.02,
+          fontSize: Math.round(width * 0.135), textTransform: 'uppercase',
+          WebkitTextStroke: '2px rgba(0,0,0,0.3)', paintOrder: 'stroke fill',
+          textShadow: '0 10px 30px rgba(0,0,0,0.35)',
+          transform: `scale(${(0.6 + 0.4 * Math.min(1, keyPop)) * pulse})` }}>{keyText}</div>
+        {sub ? <div style={{ color: '#ffffffe6', fontFamily: 'Arial', fontWeight: 700, marginTop: 14,
+          fontSize: Math.round(width * 0.046), opacity: subIn, transform: `translateY(${(1 - subIn) * 16}px)` }}>{sub}</div> : null}
       </div>
     </AbsoluteFill>
   );

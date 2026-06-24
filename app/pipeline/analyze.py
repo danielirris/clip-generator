@@ -346,7 +346,7 @@ de edición. Devuelve EXCLUSIVAMENTE JSON válido:
 {{"tema":"<tema>","accent":"#RRGGBB","secondary":"#RRGGBB",
 "subtitle_style":"pop|karaoke|box|punch|color","intensidad":<0-100>,
 "emphasis":["<palabras clave del texto a resaltar>"],
-"fullscreen":[{{"at":<seg>,"top":"<línea pequeña MAYÚS, opcional>","key":"<palabra/frase clave grande>","sub":"<subtítulo fino, opcional>"}}],
+"fullscreen":[{{"at":<seg>,"top":"<línea pequeña MAYÚS, opcional>","key":"<palabra/frase clave grande>","sub":"<subtítulo fino, opcional>","emoji":"<emoji grande acorde, opcional>"}}],
 "pills":[{{"start":<seg>,"end":<seg>,"text":"<frase clave en MAYÚS>","emoji":"<emoji acorde>"}}],
 "emojis":[{{"at":<seg>,"emoji":"<emoji>"}}]}}
 
@@ -408,7 +408,8 @@ TRANSCRIPCIÓN (timestamp en segundos):
         if at is None or not key:
             continue
         fs.append({"at": round(at, 2), "top": str(it.get("top", "")).strip()[:40],
-                   "key": key[:60], "sub": str(it.get("sub", "")).strip()[:80]})
+                   "key": key[:60], "sub": str(it.get("sub", "")).strip()[:80],
+                   "emoji": str(it.get("emoji", "")).strip()[:4]})
     plan["fullscreen"] = _spaced(fs, "at", 2.0, 3) or plan["fullscreen"]
 
     pills = []
