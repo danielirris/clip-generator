@@ -8,6 +8,7 @@ import {
 import { loadFont } from '@remotion/google-fonts/Anton';
 
 const { fontFamily } = loadFont();
+const emojiFamily = '"Apple Color Emoji","Noto Color Emoji","Segoe UI Emoji","Twemoji Mozilla",sans-serif';
 
 // --------------------------------------------------------------------------- //
 // Composición (espejo de la del proyecto, pero usando assetBase para los media)
@@ -87,7 +88,7 @@ function Card({ top, keyText, sub, emoji, accent }) {
     <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center', opacity: o, overflow: 'hidden' }}>
       <AbsoluteFill style={{ transform: `scale(${bgScale})`, background: `radial-gradient(70% 55% at 50% 42%, ${accent}, ${darken(accent, 0.45)})` }} />
       <div style={{ margin: '0 7%', textAlign: 'center', transform: `translateY(${float}px)` }}>
-        {emoji ? <div style={{ fontSize: Math.round(width * 0.18), lineHeight: 1, transform: `translateY(${(1 - emo) * 40}px) scale(${0.3 + 0.7 * Math.min(1, emo)})`, filter: 'drop-shadow(0 10px 18px rgba(0,0,0,0.45))', marginBottom: 8 }}>{emoji}</div> : null}
+        {emoji ? <div style={{ fontFamily: emojiFamily, fontSize: Math.round(width * 0.18), lineHeight: 1, transform: `translateY(${(1 - emo) * 40}px) scale(${0.3 + 0.7 * Math.min(1, emo)})`, filter: 'drop-shadow(0 10px 18px rgba(0,0,0,0.45))', marginBottom: 8 }}>{emoji}</div> : null}
         {top ? <div style={{ color: '#ffffffe6', fontFamily, fontWeight: 800, letterSpacing: 2, fontSize: Math.round(width * 0.045), textTransform: 'uppercase', opacity: topIn, transform: `translateY(${(1 - topIn) * 20}px)` }}>{top}</div> : null}
         <div style={{ color: '#fff', fontFamily, fontWeight: 900, lineHeight: 1.02, fontSize: Math.round(width * 0.135), textTransform: 'uppercase', WebkitTextStroke: '2px rgba(0,0,0,0.3)', paintOrder: 'stroke fill', textShadow: '0 10px 30px rgba(0,0,0,0.35)', transform: `scale(${(0.6 + 0.4 * Math.min(1, keyPop)) * pulse})` }}>{keyText}</div>
         {sub ? <div style={{ color: '#ffffffe6', fontFamily, fontWeight: 700, marginTop: 14, fontSize: Math.round(width * 0.046), opacity: subIn, transform: `translateY(${(1 - subIn) * 16}px)` }}>{sub}</div> : null}
@@ -107,7 +108,7 @@ function Pill({ text, emoji, accent }) {
   return (
     <div style={{ position: 'absolute', left: 0, right: 0, bottom: '30%', display: 'flex', justifyContent: 'center', opacity: o, transform: `translateY(${float + (1 - enter) * 30}px)` }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, maxWidth: '84%', background: '#fff', border: `4px solid ${accent}`, borderRadius: 999, padding: '14px 26px 14px 14px', boxShadow: '0 12px 30px rgba(0,0,0,0.35)' }}>
-        {emoji ? <div style={{ width: fontSize * 1.6, height: fontSize * 1.6, borderRadius: '50%', background: `${accent}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize, flexShrink: 0 }}>{emoji}</div> : null}
+        {emoji ? <div style={{ fontFamily: emojiFamily, width: fontSize * 1.6, height: fontSize * 1.6, borderRadius: '50%', background: `${accent}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize, flexShrink: 0 }}>{emoji}</div> : null}
         <div style={{ color: accent, fontFamily, fontWeight: 900, fontSize, textTransform: 'uppercase', lineHeight: 1.05, filter: 'brightness(0.7)' }}>{text}</div>
       </div>
     </div>
@@ -123,7 +124,7 @@ function EmojiPop({ emoji, idx }) {
   const float = Math.sin(f / fps * 4) * 8;
   const left = idx % 2 === 0 ? '16%' : '70%';
   const top = idx % 3 === 0 ? '24%' : '32%';
-  return <div style={{ position: 'absolute', left, top, fontSize: Math.round(width * 0.13), opacity: o, transform: `translateY(${float}px) scale(${0.4 + 0.6 * Math.min(1, enter)})`, filter: 'drop-shadow(0 8px 14px rgba(0,0,0,0.4))' }}>{emoji}</div>;
+  return <div style={{ fontFamily: emojiFamily, position: 'absolute', left, top, fontSize: Math.round(width * 0.13), opacity: o, transform: `translateY(${float}px) scale(${0.4 + 0.6 * Math.min(1, enter)})`, filter: 'drop-shadow(0 8px 14px rgba(0,0,0,0.4))' }}>{emoji}</div>;
 }
 
 function Cta({ texto, whatsapp, startFrame }) {

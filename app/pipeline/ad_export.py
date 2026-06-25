@@ -150,7 +150,7 @@ def build_ad_project(
 # --------------------------------------------------------------------------- #
 _INDEX_TS = """\
 import { registerRoot } from 'remotion';
-import { fontFamily } from './font';
+import { fontFamily, emojiFamily } from './font';
 import { RemotionRoot } from './Root';
 registerRoot(RemotionRoot);
 """
@@ -159,12 +159,14 @@ registerRoot(RemotionRoot);
 _FONT_TS = """\
 import { loadFont } from '@remotion/google-fonts/Anton';
 export const { fontFamily } = loadFont();
+// Pila de fuentes de emoji a color (para que NUNCA salga el cuadrado 'tofu').
+export const emojiFamily = '"Apple Color Emoji","Noto Color Emoji","Segoe UI Emoji","Twemoji Mozilla",sans-serif';
 """
 
 _ROOT_TSX = """\
 import React from 'react';
 import { Composition } from 'remotion';
-import { fontFamily } from './font';
+import { fontFamily, emojiFamily } from './font';
 import ad from '../ad.json';
 import { Ad } from './Ad';
 
@@ -192,7 +194,7 @@ import {
   AbsoluteFill, Audio, Img, Sequence, Video, interpolate, staticFile,
   useCurrentFrame, useVideoConfig,
 } from 'remotion';
-import { fontFamily } from './font';
+import { fontFamily, emojiFamily } from './font';
 import { Subtitles } from './Subtitles';
 import { Card } from './Card';
 import { Pill } from './Pill';
@@ -313,7 +315,7 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any }> = ({ v, c
 _SUBTITLES_TSX = """\
 import React, { useMemo } from 'react';
 import { useCurrentFrame, useVideoConfig, spring } from 'remotion';
-import { fontFamily } from './font';
+import { fontFamily, emojiFamily } from './font';
 
 type W = { word: string; start: number; end: number };
 const clean = (s: string) => s.toLowerCase().replace(/[^\\p{L}\\p{N}]/gu, '');
@@ -386,7 +388,7 @@ export const Subtitles: React.FC<{ words: W[]; plan?: any }> = ({ words, plan })
 _CARD_TSX = """\
 import React from 'react';
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
-import { fontFamily } from './font';
+import { fontFamily, emojiFamily } from './font';
 
 // Tarjeta de marca full-screen, CENTRADA, con emoji y animaciones escalonadas. ~2s.
 function darken(hex: string, k: number) {
@@ -418,7 +420,7 @@ export const Card: React.FC<{ top?: string; keyText: string; sub?: string; emoji
         background: `radial-gradient(70% 55% at 50% 42%, ${accent}, ${dark})`,
       }} />
       <div style={{ margin: '0 7%', textAlign: 'center', transform: `translateY(${float}px)` }}>
-        {emoji ? <div style={{ fontSize: Math.round(width * 0.18), lineHeight: 1,
+        {emoji ? <div style={{ fontFamily: emojiFamily, fontSize: Math.round(width * 0.18), lineHeight: 1,
           transform: `translateY(${(1 - emo) * 40}px) scale(${0.3 + 0.7 * Math.min(1, emo)})`,
           filter: 'drop-shadow(0 10px 18px rgba(0,0,0,0.45))', marginBottom: 8 }}>{emoji}</div> : null}
         {top ? <div style={{ color: '#ffffffe6', fontFamily, fontWeight: 800, letterSpacing: 2,
@@ -440,7 +442,7 @@ export const Card: React.FC<{ top?: string; keyText: string; sub?: string; emoji
 _LIST_TSX = """\
 import React from 'react';
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
-import { fontFamily } from './font';
+import { fontFamily, emojiFamily } from './font';
 
 // Escena de LISTA full-screen: título + items que entran uno por uno (✓).
 export const ListScene: React.FC<{ title?: string; items: string[]; accent: string }> = ({ title, items, accent }) => {
@@ -478,7 +480,7 @@ export const ListScene: React.FC<{ title?: string; items: string[]; accent: stri
 _PILL_TSX = """\
 import React from 'react';
 import { interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
-import { fontFamily } from './font';
+import { fontFamily, emojiFamily } from './font';
 
 // Píldora/badge lower-third: fondo blanco, borde de acento, emoji + texto. Con float.
 export const Pill: React.FC<{ text: string; emoji?: string; accent: string }> = ({ text, emoji, accent }) => {
@@ -503,6 +505,7 @@ export const Pill: React.FC<{ text: string; emoji?: string; accent: string }> = 
         {emoji ? <div style={{
           width: fontSize * 1.6, height: fontSize * 1.6, borderRadius: '50%', background: `${accent}22`,
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize, flexShrink: 0,
+          fontFamily: emojiFamily,
         }}>{emoji}</div> : null}
         <div style={{ color: accent, fontFamily, fontWeight: 900, fontSize,
           textTransform: 'uppercase', lineHeight: 1.05, filter: 'brightness(0.7)' }}>{text}</div>
@@ -515,7 +518,7 @@ export const Pill: React.FC<{ text: string; emoji?: string; accent: string }> = 
 _EMOJIPOP_TSX = """\
 import React from 'react';
 import { interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
-import { fontFamily } from './font';
+import { fontFamily, emojiFamily } from './font';
 
 // Emoji contextual con pop + float, en posiciones alternadas (no tapa el centro).
 export const EmojiPop: React.FC<{ emoji: string; idx: number }> = ({ emoji, idx }) => {
@@ -540,7 +543,7 @@ export const EmojiPop: React.FC<{ emoji: string; idx: number }> = ({ emoji, idx 
 _CTA_TSX = """\
 import React from 'react';
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
-import { fontFamily } from './font';
+import { fontFamily, emojiFamily } from './font';
 
 export const Cta: React.FC<{ texto: string; whatsapp: string; startFrame: number; accent?: string }> = ({ texto, whatsapp, startFrame, accent }) => {
   const { fps, width } = useVideoConfig();
