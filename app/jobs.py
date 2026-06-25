@@ -430,15 +430,19 @@ class JobManager:
                     message=f"Procesando audio {vid + 1}/{len(sources)}",
                 )
                 duration = audio.probe_duration(src)
-                audio_path = work_dir / f"audio_{vid:03d}.wav"
-                audio.extract_audio(src, audio_path)
+                if audio.has_audio(src):
+                    audio_path = work_dir / f"audio_{vid:03d}.wav"
+                    audio.extract_audio(src, audio_path)
 
-                self._update(
-                    job_id, status=JobStatus.TRANSCRIBING,
-                    message=f"Transcribiendo {vid + 1}/{len(sources)}",
-                )
-                segs = transcribe.transcribe_audio(audio_path)
-                audio_path.unlink(missing_ok=True)  # ya no se necesita
+                    self._update(
+                        job_id, status=JobStatus.TRANSCRIBING,
+                        message=f"Transcribiendo {vid + 1}/{len(sources)}",
+                    )
+                    segs = transcribe.transcribe_audio(audio_path)
+                    audio_path.unlink(missing_ok=True)  # ya no se necesita
+                else:
+                    logger.info("Video %d sin pista de audio: se omite la transcripción", vid)
+                    segs = []
 
                 videos.append(VideoSource(id=vid, path=src, duration=duration,
                                           name=self.get(job_id).filenames[vid], segments=segs))
@@ -554,12 +558,16 @@ class JobManager:
                     self._update(job_id, status=JobStatus.EXTRACTING,
                                  message=f"Procesando audio {vid + 1}/{len(sources)}")
                     duration = audio.probe_duration(src)
-                    audio_path = work_dir / f"audio_{vid:03d}.wav"
-                    audio.extract_audio(src, audio_path)
-                    self._update(job_id, status=JobStatus.TRANSCRIBING,
-                                 message=f"Transcribiendo (palabras) {vid + 1}/{len(sources)}")
-                    words = transcribe.transcribe_words(audio_path)
-                    audio_path.unlink(missing_ok=True)
+                    if audio.has_audio(src):
+                        audio_path = work_dir / f"audio_{vid:03d}.wav"
+                        audio.extract_audio(src, audio_path)
+                        self._update(job_id, status=JobStatus.TRANSCRIBING,
+                                     message=f"Transcribiendo (palabras) {vid + 1}/{len(sources)}")
+                        words = transcribe.transcribe_words(audio_path)
+                        audio_path.unlink(missing_ok=True)
+                    else:
+                        logger.info("Video %d (anuncio) sin audio: sin subtítulos", vid)
+                        words = []
 
                 music = music_paths[vid % len(music_paths)] if music_paths else None
                 videos.append(AdVideo(

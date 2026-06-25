@@ -71,6 +71,23 @@ def probe_resolution(source: Path) -> tuple[int, int]:
         return 1080, 1920
 
 
+def has_audio(source: Path) -> bool:
+    """Indica si el video tiene al menos una pista de audio (vía ffprobe).
+
+    Muchos videos exportados (pantalla, animaciones, stock) vienen SIN audio;
+    en ese caso no se puede ni se debe extraer audio.
+    """
+    proc = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "a",
+            "-show_entries", "stream=index",
+            "-of", "csv=p=0", str(source),
+        ],
+        capture_output=True, text=True,
+    )
+    return bool(proc.stdout.strip())
+
+
 def extract_audio(source: Path, dest: Path) -> Path:
     """Extrae el audio de ``source`` a ``dest`` usando FFmpeg.
 
