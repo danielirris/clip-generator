@@ -88,15 +88,14 @@ def build_ad_project(
             shutil.copy(p, sfx_out / p.name)
             sfx_names[name] = f"audio/sfx/{p.name}"
 
-    # Stock de guías: se copian al proyecto y se asignan ROTANDO a cada momento
-    # "guia" que la IA detectó (se mostrarán como video sobrepuesto / PiP).
+    # Guías del trabajo: se copian al proyecto y se asignan POR VIDEO (cada video
+    # usa la guía en su misma posición). Se muestran como video sobrepuesto (PiP).
     guides = [g for g in (guides or []) if g and g.exists()]
     copied_guides: dict[str, tuple[str, float]] = {}
-    guide_idx = 0
 
     entries = []
     copied_music: dict[str, str] = {}
-    for v in videos:
+    for vpos, v in enumerate(videos):
         video_name = f"video_{v.id:03d}{v.path.suffix.lower() or '.mp4'}"
         shutil.copy(v.path, public / video_name)
 
@@ -116,21 +115,21 @@ def build_ad_project(
 
         plan = {**_DEFAULT_PLAN, **(v.plan or {})}
 
-        # Asignar un video de guía a cada momento "guia" (rotando el stock).
+        # A este video le corresponde la guía de su misma posición (1:1 si subes
+        # una guía por video). Todos los momentos "guia" de este video usan esa.
         guia_out = []
         if guides:
+            gp = guides[vpos % len(guides)]
+            if gp.name not in copied_guides:
+                gn = f"guia_{len(copied_guides):03d}{gp.suffix.lower() or '.mp4'}"
+                shutil.copy(gp, guides_out / gn)
+                try:
+                    gdur = min(10.0, max(2.0, audio.probe_duration(gp)))
+                except Exception:  # noqa: BLE001
+                    gdur = 10.0
+                copied_guides[gp.name] = (f"guides/{gn}", round(gdur, 2))
+            gfile, gdur = copied_guides[gp.name]
             for gm in (plan.get("guias") or []):
-                gp = guides[guide_idx % len(guides)]
-                guide_idx += 1
-                if gp.name not in copied_guides:
-                    gn = f"guia_{len(copied_guides):03d}{gp.suffix.lower() or '.mp4'}"
-                    shutil.copy(gp, guides_out / gn)
-                    try:
-                        gdur = min(10.0, max(2.0, audio.probe_duration(gp)))
-                    except Exception:  # noqa: BLE001
-                        gdur = 10.0
-                    copied_guides[gp.name] = (f"guides/{gn}", round(gdur, 2))
-                gfile, gdur = copied_guides[gp.name]
                 guia_out.append({"at": gm.get("at", 0.0), "file": gfile, "dur": gdur})
         plan["guias"] = guia_out
 
@@ -250,7 +249,8 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any }> = ({ v, c
   const lists = (plan.lists || []).map((l: any) => ({ ...l, f: Math.round(l.at * fps), df: Math.round((1.2 + (l.items ? l.items.length : 0) * 0.7) * fps) }));
   const guias = (plan.guias || []).map((g: any) => ({ ...g, f: Math.round((g.at || 0) * fps), df: Math.max(1, Math.round((g.dur || 10) * fps)) }));
   const onFull = cards.some((c: any) => frame >= c.f && frame < c.f + CARD_S * fps)
-    || lists.some((l: any) => frame >= l.f && frame < l.f + l.df);
+    || lists.some((l: any) => frame >= l.f && frame < l.f + l.df)
+    || guias.some((g: any) => frame >= g.f && frame < g.f + g.df);
 
   const isSpeaking = (f: number) => v.words.some((w: any) => f / fps >= w.start && f / fps < w.end);
 
@@ -331,7 +331,7 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any }> = ({ v, c
       {/* Guía sobrepuesta (PiP) en los momentos donde la voz la ofrece. */}
       {guias.map((g: any, i: number) => (
         <Sequence key={`guia${i}`} from={g.f} durationInFrames={g.df}>
-          <GuidePiP file={g.file} accent={pick(i + 3)} />
+          <GuidePiP file={g.file} bg={v.video} accent={pick(i + 3)} />
         </Sequence>
       ))}
 
@@ -518,40 +518,50 @@ export const ListScene: React.FC<{ title?: string; items: string[]; accent: stri
 
 _GUIDE_TSX = """\
 import React from 'react';
-import { Video, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Video, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 import { fontFamily, emojiFamily } from './font';
 
-// Video de la GUÍA sobrepuesto (picture-in-picture) para generar confianza:
-// "mira, la guía existe de verdad". Entra con rebote, flota suave y se va con fade.
-export const GuidePiP: React.FC<{ file: string; accent: string }> = ({ file, accent }) => {
+// Video de la GUÍA sobrepuesto para generar confianza ("la guía existe de verdad").
+// Tamaño MODERADO, CENTRADO, con el fondo del video DIFUMINADO detrás para que resalte.
+export const GuidePiP: React.FC<{ file: string; bg?: string; accent: string }> = ({ file, bg, accent }) => {
   const { fps, width, durationInFrames } = useVideoConfig();
   const f = useCurrentFrame();
   const enter = spring({ frame: f, fps, config: { damping: 16, mass: 0.6 } });
   const out = interpolate(f, [durationInFrames - 8, durationInFrames], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const o = Math.min(1, enter) * out;
-  const float = Math.sin(f / fps * 2.2) * 7;
-  const w = Math.round(width * 0.54);
+  const blur = Math.round(26 * Math.min(1, enter));
+  const float = Math.sin(f / fps * 2.2) * 6;
+  const w = Math.round(width * 0.46);   // tamaño moderado (no pantalla completa)
   return (
-    <div style={{
-      position: 'absolute', left: '50%', top: '10%',
-      transform: `translateX(-50%) translateY(${float + (1 - enter) * -50}px) scale(${0.85 + 0.15 * Math.min(1, enter)})`,
-      opacity: o,
-    }}>
-      <div style={{
-        position: 'relative', width: w, borderRadius: 24, overflow: 'hidden',
-        border: `6px solid ${accent}`, boxShadow: '0 22px 55px rgba(0,0,0,0.6)', background: '#000',
-      }}>
-        <Video src={staticFile(file)} muted loop style={{ width: '100%', display: 'block' }} />
-      </div>
-      <div style={{
-        position: 'absolute', top: -16, left: '50%', transform: 'translateX(-50%)',
-        background: accent, color: '#0b0b0b', fontFamily, fontWeight: 900,
-        fontSize: Math.round(width * 0.034), padding: '7px 18px', borderRadius: 999,
-        textTransform: 'uppercase', whiteSpace: 'nowrap', boxShadow: '0 8px 20px rgba(0,0,0,0.45)',
-      }}>
-        <span style={{ fontFamily: emojiFamily }}>📘</span> Guía incluida
-      </div>
-    </div>
+    <AbsoluteFill style={{ opacity: o }}>
+      {/* Fondo: copia DIFUMINADA del propio video (filter:blur sí funciona en el render). */}
+      {bg ? (
+        <AbsoluteFill style={{ overflow: 'hidden' }}>
+          <Video src={staticFile(bg)} muted loop
+                 style={{ width: '100%', height: '100%', objectFit: 'cover', filter: `blur(${blur}px)`, transform: 'scale(1.18)' }} />
+        </AbsoluteFill>
+      ) : null}
+      <AbsoluteFill style={{ backgroundColor: 'rgba(0,0,0,0.45)' }} />
+      {/* Tarjeta de la guía, centrada. */}
+      <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center' }}>
+        <div style={{ position: 'relative', transform: `translateY(${float + (1 - enter) * 40}px) scale(${0.9 + 0.1 * Math.min(1, enter)})` }}>
+          <div style={{
+            position: 'relative', width: w, borderRadius: 24, overflow: 'hidden',
+            border: `6px solid ${accent}`, boxShadow: '0 24px 60px rgba(0,0,0,0.65)', background: '#000',
+          }}>
+            <Video src={staticFile(file)} muted loop style={{ width: '100%', display: 'block' }} />
+          </div>
+          <div style={{
+            position: 'absolute', top: -16, left: '50%', transform: 'translateX(-50%)',
+            background: accent, color: '#0b0b0b', fontFamily, fontWeight: 900,
+            fontSize: Math.round(width * 0.034), padding: '7px 18px', borderRadius: 999,
+            textTransform: 'uppercase', whiteSpace: 'nowrap', boxShadow: '0 8px 20px rgba(0,0,0,0.45)',
+          }}>
+            <span style={{ fontFamily: emojiFamily }}>📘</span> Guía incluida
+          </div>
+        </div>
+      </AbsoluteFill>
+    </AbsoluteFill>
   );
 };
 """

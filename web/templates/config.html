@@ -37,23 +37,14 @@
     </section>
 
     <section class="card">
-      <h2>📘 Stock de Guías (video sobrepuesto)</h2>
+      <h2>📘 Video de la guía (se sube por trabajo)</h2>
       <p style="color:var(--muted); font-size:.9rem; line-height:1.5">
-        Sube aquí <b>videos cortos de tu guía</b> (5 está bien). Cuando la IA detecte
-        que en el audio <b>se ofrece una guía / recurso / regalo</b>, mostrará uno de
-        estos videos <b>sobrepuesto</b> en ese momento (rotando) para dar
-        <b>confianza</b> de que la guía existe. Súbelos una sola vez.
+        La guía <b>ya no se configura aquí</b>: ahora la subes <b>en cada trabajo</b>,
+        junto a tus videos del Apartado 2. Así cada producto lleva su propia guía sin
+        tener que cambiar nada. Cuando la IA detecte que el audio ofrece una guía,
+        mostrará ese video <b>sobrepuesto</b> (tamaño moderado, centrado, con el fondo
+        difuminado) para dar confianza.
       </p>
-
-      <label for="gfile" class="dropzone" id="gdropzone">
-        <span class="dz-icon">⬆️</span>
-        <span class="dz-text">Añadir videos de la guía</span>
-        <span class="dz-hint">mp4, mov, webm, m4v — varios a la vez</span>
-        <input type="file" id="gfile" accept=".mp4,.mov,.webm,.m4v,.mkv" multiple hidden>
-      </label>
-
-      <p id="gmsg" class="progress-msg"></p>
-      <ul id="guides" class="track-list"></ul>
     </section>
 
     <section class="card">
@@ -149,54 +140,6 @@
       e.target.value = "";
     });
     load();
-
-    // --- Stock de Guías ---
-    const guidesEl = $("guides");
-    const gmsg = $("gmsg");
-    async function loadGuides() {
-      const r = await fetch("/api/library/guides");
-      const { guides } = await r.json();
-      renderGuides(guides);
-    }
-    function renderGuides(guides) {
-      guidesEl.innerHTML = "";
-      if (!guides.length) {
-        guidesEl.innerHTML = '<li class="track-empty">No hay guías todavía. Sube algunos videos ↑</li>';
-        return;
-      }
-      guides.forEach((name) => {
-        const li = document.createElement("li");
-        li.className = "track-item";
-        const span = document.createElement("span");
-        span.textContent = "📘 " + name;
-        const del = document.createElement("button");
-        del.className = "track-del";
-        del.textContent = "🗑️";
-        del.onclick = async () => {
-          await fetch("/api/library/guides/" + encodeURIComponent(name), { method: "DELETE" });
-          loadGuides();
-        };
-        li.append(span, del);
-        guidesEl.append(li);
-      });
-    }
-    $("gfile").addEventListener("change", async (e) => {
-      const files = e.target.files;
-      if (!files.length) return;
-      const data = new FormData();
-      for (const f of files) data.append("files", f);
-      gmsg.textContent = "Subiendo…";
-      try {
-        const r = await fetch("/api/library/guides", { method: "POST", body: data });
-        const { guides } = await r.json();
-        gmsg.textContent = "✅ Añadidas.";
-        renderGuides(guides);
-      } catch (err) {
-        gmsg.textContent = "Error al subir: " + err.message;
-      }
-      e.target.value = "";
-    });
-    loadGuides();
   </script>
 </body>
 </html>

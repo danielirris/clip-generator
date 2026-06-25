@@ -41,7 +41,8 @@ class JobStore:
                 music       TEXT,
                 mode        TEXT NOT NULL DEFAULT 'montage',
                 voz         TEXT,
-                num_clips_req INTEGER DEFAULT 0
+                num_clips_req INTEGER DEFAULT 0,
+                guias       TEXT
             )
             """
         )
@@ -53,6 +54,8 @@ class JobStore:
             self._conn.execute("ALTER TABLE jobs ADD COLUMN voz TEXT")
         if "num_clips_req" not in cols:
             self._conn.execute("ALTER TABLE jobs ADD COLUMN num_clips_req INTEGER DEFAULT 0")
+        if "guias" not in cols:
+            self._conn.execute("ALTER TABLE jobs ADD COLUMN guias TEXT")
         self._conn.commit()
 
     def save(
@@ -67,19 +70,21 @@ class JobStore:
         mode: str = "montage",
         voz: Path | None = None,
         num_clips_req: int = 0,
+        guias: list[Path] | None = None,
     ) -> None:
         """Inserta (o reemplaza) un job recién creado. ``music`` es una lista de pistas."""
         with self._lock:
             self._conn.execute(
                 "INSERT OR REPLACE INTO jobs "
                 "(id, filenames, status, progress, message, error, aviso, n_clips, "
-                " created_at, output_dir, sources, music, mode, voz, num_clips_req) "
-                "VALUES (?, ?, ?, 0, 'En cola', '', '', 0, ?, NULL, ?, ?, ?, ?, ?)",
+                " created_at, output_dir, sources, music, mode, voz, num_clips_req, guias) "
+                "VALUES (?, ?, ?, 0, 'En cola', '', '', 0, ?, NULL, ?, ?, ?, ?, ?, ?)",
                 (
                     id, json.dumps(filenames), status, created_at,
                     json.dumps([str(p) for p in sources]),
                     json.dumps([str(p) for p in music]), mode,
                     str(voz) if voz else None, int(num_clips_req),
+                    json.dumps([str(p) for p in (guias or [])]),
                 ),
             )
             self._conn.commit()

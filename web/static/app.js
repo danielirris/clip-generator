@@ -86,6 +86,7 @@
     data.append("num_clips", $("num_clips").value || "5");
     const voz = $("voz").files[0];
     if (voz) data.append("voz", voz);
+    for (const g of $("guias").files) data.append("guias", g);
 
     show(progressCard);
     setProgress("queued", 2, "Subiendo videos…");
@@ -243,6 +244,7 @@
   function syncModeUI() {
     const mode = document.querySelector('input[name="mode"]:checked').value;
     $("voz-row").style.display = mode === "ad" ? "block" : "none";
+    $("guias-row").style.display = mode === "ad" ? "block" : "none";
     $("count-row").style.display = mode === "ad" ? "none" : "flex";
     $("music-hint").textContent =
       mode === "ad"

@@ -56,6 +56,14 @@
           <input type="file" id="voz" name="voz" accept=".mp3,.m4a,.wav,.aac,.ogg">
         </label>
 
+        <label for="guias" class="music-row" id="guias-row" style="display:none">
+          📘 <b>Video(s) de la guía (Apartado 2):</b> opcional. Cuando la IA detecte
+          que el audio ofrece una guía/recurso, mostrará este video <b>sobrepuesto</b>
+          (moderado, centrado, fondo difuminado). Sube uno por cada video, en el mismo
+          orden, y a cada video le tocará su guía.
+          <input type="file" id="guias" name="guias" accept=".mp4,.mov,.webm,.m4v,.mkv" multiple>
+        </label>
+
         <label for="music" class="music-row" id="music-row">
           🎵 <b>Música de fondo</b> (opcional): <span id="music-hint">en Recortes se
           quita el audio original y se usa esta (varias pistas = una por clip).</span>

@@ -105,6 +105,7 @@ class JobManager:
         self._jobs: dict[str, Job] = {}
         self._sources: dict[str, list[Path]] = {}
         self._music: dict[str, list[Path]] = {}
+        self._guias: dict[str, list[Path]] = {}  # videos de guía por job (PiP)
         self._voz: dict[str, Path] = {}
         self._req_clips: dict[str, int] = {}  # nº de clips pedido (0 = por defecto)
         self._lock = threading.Lock()
@@ -129,6 +130,7 @@ class JobManager:
             try:
                 sources = [Path(p) for p in json.loads(row["sources"])]
                 music = [Path(p) for p in json.loads(row["music"] or "[]")]
+                guias = [Path(p) for p in json.loads((row["guias"] if "guias" in row.keys() else None) or "[]")]
                 voz = Path(row["voz"]) if row["voz"] else None
                 if not sources or not all(p.exists() for p in sources):
                     self._store.update(row["id"], {
@@ -144,6 +146,8 @@ class JobManager:
                     self._sources[job.id] = sources
                     if music:
                         self._music[job.id] = music  # lista de pistas
+                    if guias:
+                        self._guias[job.id] = guias
                     if voz:
                         self._voz[job.id] = voz
                     if row["num_clips_req"]:
@@ -163,6 +167,7 @@ class JobManager:
         mode: str = "montage",
         voz_tmp: tuple[Path, str] | None = None,
         num_clips: int = 0,
+        guias_tmps: list[tuple[Path, str]] | None = None,
     ) -> str:
         """Registra un nuevo job, mueve los uploads a su carpeta y lo encola.
 
@@ -201,19 +206,29 @@ class JobManager:
             voz_path = sources_dir / f"voz{vext}"
             shutil.move(str(vtmp), str(voz_path))
 
+        guia_paths: list[Path] = []
+        for i, (gtmp, gname) in enumerate(guias_tmps or []):
+            gext = Path(gname).suffix.lower() or ".mp4"
+            gdest = sources_dir / f"guia_{i:03d}{gext}"
+            shutil.move(str(gtmp), str(gdest))
+            guia_paths.append(gdest)
+
         job = Job(id=job_id, filenames=filenames, mode=mode)
         with self._lock:
             self._jobs[job_id] = job
             self._sources[job_id] = paths
             if music_paths:
                 self._music[job_id] = music_paths
+            if guia_paths:
+                self._guias[job_id] = guia_paths
             if voz_path is not None:
                 self._voz[job_id] = voz_path
             if num_clips:
                 self._req_clips[job_id] = int(num_clips)
         self._store.save(id=job_id, filenames=filenames, status=JobStatus.QUEUED.value,
                          created_at=job.created_at, sources=paths, music=music_paths,
-                         mode=mode, voz=voz_path, num_clips_req=int(num_clips or 0))
+                         mode=mode, voz=voz_path, num_clips_req=int(num_clips or 0),
+                         guias=guia_paths)
         self._queue.put(("job", job_id))
         logger.info("Job %s encolado (modo=%s, %d videos, %d pistas)",
                     job_id, mode, len(paths), len(music_paths))
@@ -506,6 +521,7 @@ class JobManager:
             with self._lock:
                 self._sources.pop(job_id, None)
                 self._music.pop(job_id, None)
+                self._guias.pop(job_id, None)
                 self._voz.pop(job_id, None)
                 self._req_clips.pop(job_id, None)
             cleanup.purge_keep_recent(settings.outputs_dir, settings.galeria_max)
@@ -570,7 +586,7 @@ class JobManager:
                 videos, output_dir,
                 cta_texto=settings.cta_texto, whatsapp=settings.whatsapp_link,
                 vol=settings.musica_volumen, vol_duck=settings.musica_volumen_ducking,
-                sfx=sfx, guides=library.list_guides(),
+                sfx=sfx, guides=self._guias.get(job_id, []),
             )
             # Empaquetar el proyecto editable (.zip).
             shutil.make_archive(str(output_dir / "anuncio-remotion"), "zip",
@@ -593,6 +609,7 @@ class JobManager:
             with self._lock:
                 self._sources.pop(job_id, None)
                 self._music.pop(job_id, None)
+                self._guias.pop(job_id, None)
                 self._voz.pop(job_id, None)
                 self._req_clips.pop(job_id, None)
             cleanup.purge_keep_recent(settings.outputs_dir, settings.galeria_max)
