@@ -167,6 +167,27 @@ function ListScene({ title, items, accent }) {
   );
 }
 
+function GuidePiP({ file, accent, src }) {
+  const { fps, width, durationInFrames } = useVideoConfig();
+  const f = useCurrentFrame();
+  const enter = spring({ frame: f, fps, config: { damping: 16, mass: 0.6 } });
+  const out = interpolate(f, [durationInFrames - 8, durationInFrames], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const o = Math.min(1, enter) * out;
+  const float = Math.sin(f / fps * 2.2) * 7;
+  const w = Math.round(width * 0.54);
+  return (
+    <div style={{ position: 'absolute', left: '50%', top: '10%', opacity: o,
+      transform: `translateX(-50%) translateY(${float + (1 - enter) * -50}px) scale(${0.85 + 0.15 * Math.min(1, enter)})` }}>
+      <div style={{ position: 'relative', width: w, borderRadius: 24, overflow: 'hidden', border: `6px solid ${accent}`, boxShadow: '0 22px 55px rgba(0,0,0,0.6)', background: '#000' }}>
+        <Video src={src(file)} muted loop style={{ width: '100%', display: 'block' }} />
+      </div>
+      <div style={{ position: 'absolute', top: -16, left: '50%', transform: 'translateX(-50%)', background: accent, color: '#0b0b0b', fontFamily, fontWeight: 900, fontSize: Math.round(width * 0.034), padding: '7px 18px', borderRadius: 999, textTransform: 'uppercase', whiteSpace: 'nowrap', boxShadow: '0 8px 20px rgba(0,0,0,0.45)' }}>
+        <span style={{ fontFamily: emojiFamily }}>📘</span> Guía incluida
+      </div>
+    </div>
+  );
+}
+
 const CARD_S = 2.0;
 function Ad({ v, cta, musica, sfx, assetBase }) {
   const { fps, durationInFrames } = useVideoConfig();
@@ -179,6 +200,7 @@ function Ad({ v, cta, musica, sfx, assetBase }) {
   const ctaStart = durationInFrames - Math.round(3 * fps);
   const cards = (plan.fullscreen || []).map((c) => ({ ...c, f: Math.round(c.at * fps) }));
   const lists = (plan.lists || []).map((l) => ({ ...l, f: Math.round(l.at * fps), df: Math.round((1.2 + (l.items ? l.items.length : 0) * 0.7) * fps) }));
+  const guias = (plan.guias || []).map((g) => ({ ...g, f: Math.round((g.at || 0) * fps), df: Math.max(1, Math.round((g.dur || 10) * fps)) }));
   const onFull = cards.some((c) => frame >= c.f && frame < c.f + CARD_S * fps) || lists.some((l) => frame >= l.f && frame < l.f + l.df);
   const isSpeaking = (f) => v.words.some((w) => f / fps >= w.start && f / fps < w.end);
   const kb = interpolate(frame, [0, durationInFrames], [1.03, 1.1], { extrapolateRight: 'clamp' });
@@ -216,6 +238,9 @@ function Ad({ v, cta, musica, sfx, assetBase }) {
           </Sequence>
         );
       })}
+      {guias.map((g, i) => (
+        <Sequence key={`guia${i}`} from={g.f} durationInFrames={g.df}><GuidePiP file={g.file} accent={pick(i + 3)} src={src} /></Sequence>
+      ))}
       {cards.map((c, i) => (
         <Sequence key={`card${i}`} from={c.f} durationInFrames={Math.round(CARD_S * fps)}><Card top={c.top} keyText={c.key} sub={c.sub} emoji={c.emoji} accent={pick(i)} /></Sequence>
       ))}

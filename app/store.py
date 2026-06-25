@@ -103,6 +103,15 @@ class JobStore:
             cur = self._conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,))
             return cur.fetchone()
 
+    def recent_done(self, limit: int = 25) -> list[sqlite3.Row]:
+        """Trabajos terminados, del más reciente al más viejo (para la Galería)."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM jobs WHERE status='done' "
+                "ORDER BY created_at DESC LIMIT ?", (int(limit),)
+            )
+            return cur.fetchall()
+
     def incomplete(self) -> list[sqlite3.Row]:
         """Jobs que no terminaron (para reanudar tras un reinicio)."""
         with self._lock:

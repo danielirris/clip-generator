@@ -24,7 +24,7 @@ _DEFAULT_PLAN = {
     "palette": ["#FF5C5C", "#FFB020", "#2ECC71", "#00C2FF", "#7C5CFF"],
     "subtitle_style": "pop", "intensidad": 70,
     "emphasis": [], "fullscreen": [], "pills": [], "emojis": [], "overlays": [],
-    "lists": [],
+    "lists": [], "guias": [],
 }
 
 
@@ -68,14 +68,18 @@ def build_ad_project(
     vol: float,
     vol_duck: float,
     sfx: dict[str, Path] | None = None,
+    guides: list[Path] | None = None,
 ) -> Path:
     """Escribe el proyecto Remotion del anuncio. Devuelve la carpeta del proyecto."""
+    from app.pipeline import audio  # import perezoso (evita ciclos)
+
     root = output_dir / "remotion-ad"
     public = root / "public"
     audio_dir = public / "audio"
     sfx_out = audio_dir / "sfx"
+    guides_out = public / "guides"
     src = root / "src"
-    for d in (public, audio_dir, sfx_out, src):
+    for d in (public, audio_dir, sfx_out, guides_out, src):
         d.mkdir(parents=True, exist_ok=True)
 
     sfx_names: dict[str, str] = {}
@@ -83,6 +87,12 @@ def build_ad_project(
         if p and p.exists():
             shutil.copy(p, sfx_out / p.name)
             sfx_names[name] = f"audio/sfx/{p.name}"
+
+    # Stock de guías: se copian al proyecto y se asignan ROTANDO a cada momento
+    # "guia" que la IA detectó (se mostrarán como video sobrepuesto / PiP).
+    guides = [g for g in (guides or []) if g and g.exists()]
+    copied_guides: dict[str, tuple[str, float]] = {}
+    guide_idx = 0
 
     entries = []
     copied_music: dict[str, str] = {}
@@ -105,6 +115,25 @@ def build_ad_project(
             music_name = f"audio/{copied_music[key]}"
 
         plan = {**_DEFAULT_PLAN, **(v.plan or {})}
+
+        # Asignar un video de guía a cada momento "guia" (rotando el stock).
+        guia_out = []
+        if guides:
+            for gm in (plan.get("guias") or []):
+                gp = guides[guide_idx % len(guides)]
+                guide_idx += 1
+                if gp.name not in copied_guides:
+                    gn = f"guia_{len(copied_guides):03d}{gp.suffix.lower() or '.mp4'}"
+                    shutil.copy(gp, guides_out / gn)
+                    try:
+                        gdur = min(10.0, max(2.0, audio.probe_duration(gp)))
+                    except Exception:  # noqa: BLE001
+                        gdur = 10.0
+                    copied_guides[gp.name] = (f"guides/{gn}", round(gdur, 2))
+                gfile, gdur = copied_guides[gp.name]
+                guia_out.append({"at": gm.get("at", 0.0), "file": gfile, "dur": gdur})
+        plan["guias"] = guia_out
+
         entries.append({
             "id": v.id, "name": v.name, "video": video_name,
             "width": v.width, "height": v.height, "duration": round(v.duration, 3),
@@ -131,6 +160,7 @@ def build_ad_project(
     (src / "Subtitles.tsx").write_text(_SUBTITLES_TSX, encoding="utf-8")
     (src / "Card.tsx").write_text(_CARD_TSX, encoding="utf-8")
     (src / "List.tsx").write_text(_LIST_TSX, encoding="utf-8")
+    (src / "Guide.tsx").write_text(_GUIDE_TSX, encoding="utf-8")
     (src / "Pill.tsx").write_text(_PILL_TSX, encoding="utf-8")
     (src / "EmojiPop.tsx").write_text(_EMOJIPOP_TSX, encoding="utf-8")
     (src / "Cta.tsx").write_text(_CTA_TSX, encoding="utf-8")
@@ -201,6 +231,7 @@ import { Pill } from './Pill';
 import { EmojiPop } from './EmojiPop';
 import { Cta } from './Cta';
 import { ListScene } from './List';
+import { GuidePiP } from './Guide';
 
 const CARD_S = 2.0;
 
@@ -217,6 +248,7 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any }> = ({ v, c
 
   const cards = (plan.fullscreen || []).map((c: any) => ({ ...c, f: Math.round(c.at * fps) }));
   const lists = (plan.lists || []).map((l: any) => ({ ...l, f: Math.round(l.at * fps), df: Math.round((1.2 + (l.items ? l.items.length : 0) * 0.7) * fps) }));
+  const guias = (plan.guias || []).map((g: any) => ({ ...g, f: Math.round((g.at || 0) * fps), df: Math.max(1, Math.round((g.dur || 10) * fps)) }));
   const onFull = cards.some((c: any) => frame >= c.f && frame < c.f + CARD_S * fps)
     || lists.some((l: any) => frame >= l.f && frame < l.f + l.df);
 
@@ -295,6 +327,13 @@ export const Ad: React.FC<{ v: any; cta: any; musica: any; sfx: any }> = ({ v, c
           </Sequence>
         );
       })}
+
+      {/* Guía sobrepuesta (PiP) en los momentos donde la voz la ofrece. */}
+      {guias.map((g: any, i: number) => (
+        <Sequence key={`guia${i}`} from={g.f} durationInFrames={g.df}>
+          <GuidePiP file={g.file} accent={pick(i + 3)} />
+        </Sequence>
+      ))}
 
       {/* Tarjetas full-screen (donde la IA dijo, según la voz). */}
       {cards.map((c: any, i: number) => (
@@ -473,6 +512,46 @@ export const ListScene: React.FC<{ title?: string; items: string[]; accent: stri
         })}
       </div>
     </AbsoluteFill>
+  );
+};
+"""
+
+_GUIDE_TSX = """\
+import React from 'react';
+import { Video, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
+import { fontFamily, emojiFamily } from './font';
+
+// Video de la GUÍA sobrepuesto (picture-in-picture) para generar confianza:
+// "mira, la guía existe de verdad". Entra con rebote, flota suave y se va con fade.
+export const GuidePiP: React.FC<{ file: string; accent: string }> = ({ file, accent }) => {
+  const { fps, width, durationInFrames } = useVideoConfig();
+  const f = useCurrentFrame();
+  const enter = spring({ frame: f, fps, config: { damping: 16, mass: 0.6 } });
+  const out = interpolate(f, [durationInFrames - 8, durationInFrames], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const o = Math.min(1, enter) * out;
+  const float = Math.sin(f / fps * 2.2) * 7;
+  const w = Math.round(width * 0.54);
+  return (
+    <div style={{
+      position: 'absolute', left: '50%', top: '10%',
+      transform: `translateX(-50%) translateY(${float + (1 - enter) * -50}px) scale(${0.85 + 0.15 * Math.min(1, enter)})`,
+      opacity: o,
+    }}>
+      <div style={{
+        position: 'relative', width: w, borderRadius: 24, overflow: 'hidden',
+        border: `6px solid ${accent}`, boxShadow: '0 22px 55px rgba(0,0,0,0.6)', background: '#000',
+      }}>
+        <Video src={staticFile(file)} muted loop style={{ width: '100%', display: 'block' }} />
+      </div>
+      <div style={{
+        position: 'absolute', top: -16, left: '50%', transform: 'translateX(-50%)',
+        background: accent, color: '#0b0b0b', fontFamily, fontWeight: 900,
+        fontSize: Math.round(width * 0.034), padding: '7px 18px', borderRadius: 999,
+        textTransform: 'uppercase', whiteSpace: 'nowrap', boxShadow: '0 8px 20px rgba(0,0,0,0.45)',
+      }}>
+        <span style={{ fontFamily: emojiFamily }}>📘</span> Guía incluida
+      </div>
+    </div>
   );
 };
 """

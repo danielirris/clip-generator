@@ -17,6 +17,7 @@ from app.config import BASE_DIR, get_settings
 logger = logging.getLogger(__name__)
 
 AUDIO_EXT = {".mp3", ".m4a", ".wav", ".aac", ".ogg"}
+VIDEO_EXT = {".mp4", ".mov", ".webm", ".m4v", ".mkv"}
 
 
 # --------------------------------------------------------------------------- #
@@ -59,6 +60,13 @@ def sfx_dir() -> Path:
     return d
 
 
+def guides_dir() -> Path:
+    """Carpeta del 'stock' de videos de la guía (se suben una vez en /config)."""
+    d = _base() / "guides"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 # --------------------------------------------------------------------------- #
 # Música
 # --------------------------------------------------------------------------- #
@@ -89,6 +97,40 @@ def delete_music(name: str) -> bool:
     if target.parent == music_dir().resolve() and target.is_file():
         target.unlink()
         logger.info("Música borrada de la biblioteca: %s", name)
+        return True
+    return False
+
+
+# --------------------------------------------------------------------------- #
+# Stock de Guías (videos cortos que se sobreponen para generar confianza)
+# --------------------------------------------------------------------------- #
+def list_guides() -> list[Path]:
+    """Lista los videos de la guía del stock (ordenados por nombre)."""
+    return sorted(p for p in guides_dir().iterdir()
+                  if p.is_file() and p.suffix.lower() in VIDEO_EXT)
+
+
+def save_guide(tmp_path: Path, filename: str) -> Path:
+    """Guarda un video de guía en el stock con nombre saneado y único."""
+    safe = "".join(c for c in Path(filename).stem if c.isalnum() or c in " -_").strip()
+    safe = safe.replace(" ", "_") or "guia"
+    ext = Path(filename).suffix.lower() or ".mp4"
+    dest = guides_dir() / f"{safe}{ext}"
+    i = 1
+    while dest.exists():
+        dest = guides_dir() / f"{safe}_{i}{ext}"
+        i += 1
+    shutil.move(str(tmp_path), str(dest))
+    logger.info("Guía añadida al stock: %s", dest.name)
+    return dest
+
+
+def delete_guide(name: str) -> bool:
+    """Borra un video de guía del stock por nombre de archivo."""
+    target = (guides_dir() / name).resolve()
+    if target.parent == guides_dir().resolve() and target.is_file():
+        target.unlink()
+        logger.info("Guía borrada del stock: %s", name)
         return True
     return False
 

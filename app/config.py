@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     # --- Límites / recursos ---
     max_upload_mb: int = 2048
     retencion_horas: int = 24
+    # Galería: nº de trabajos recientes que se conservan (y se muestran). En vez
+    # de borrar por horas, mantenemos SIEMPRE los últimos N para poder verlos.
+    galeria_max: int = 25
 
     # --- Servidor ---
     port: int = 8000

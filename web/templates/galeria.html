@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Galería — Clip Generator</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .gal-grid {
+      display: grid; gap: 16px; margin-top: 18px;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    }
+    .gal-card {
+      background: #14171d; border: 1px solid #262a33; border-radius: 12px;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .gal-card video, .gal-poster {
+      width: 100%; aspect-ratio: 9 / 16; background: #000; display: block; object-fit: cover;
+    }
+    .gal-poster {
+      border: none; cursor: pointer; padding: 0; position: relative;
+      background-size: cover; background-position: center;
+    }
+    .gal-poster::after {
+      content: "▶"; position: absolute; inset: 0; display: flex;
+      align-items: center; justify-content: center; font-size: 38px; color: #fff;
+      text-shadow: 0 2px 10px rgba(0,0,0,.6); opacity: .92;
+    }
+    .gal-meta { padding: 9px 11px; }
+    .gal-title {
+      color: #e8eaed; font-size: 13px; font-weight: 600; line-height: 1.25;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .gal-sub { color: #8b929d; font-size: 11px; margin-top: 3px; }
+    .gal-badge {
+      display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 7px;
+      border-radius: 999px; margin-right: 6px; text-transform: uppercase; letter-spacing: .3px;
+    }
+    .b-ad { background: rgba(124,92,255,.18); color: #b9a6ff; }
+    .b-mont { background: rgba(0,212,255,.16); color: #7fe3ff; }
+    .gal-links a { color: #00d4ff; font-size: 12px; text-decoration: none; margin-right: 12px; }
+    .gal-empty { color: #8b929d; margin-top: 30px; text-align: center; }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header>
+      <h1>🎞️ Galería de trabajos</h1>
+      <p class="subtitle">
+        <a href="/" style="color:var(--accent-2)">← Volver</a> ·
+        Los últimos trabajos terminados. Toca un video para reproducirlo.
+      </p>
+    </header>
+
+    <div id="grid" class="gal-grid"></div>
+    <p id="empty" class="gal-empty" style="display:none">
+      Todavía no hay trabajos terminados. Genera algunos y aparecerán aquí. ✨
+    </p>
+  </main>
+
+  <script>
+    const grid = document.getElementById("grid");
+    const empty = document.getElementById("empty");
+
+    function fecha(ts) {
+      try {
+        return new Date(ts * 1000).toLocaleString("es", {
+          day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+        });
+      } catch { return ""; }
+    }
+
+    function play(poster, url) {
+      const vid = document.createElement("video");
+      vid.src = url; vid.controls = true; vid.autoplay = true; vid.loop = true;
+      vid.playsInline = true;
+      poster.replaceWith(vid);
+      vid.play().catch(() => {});
+    }
+
+    function card(item) {
+      const el = document.createElement("div");
+      el.className = "gal-card";
+
+      const first = item.clips && item.clips[0];
+      if (first) {
+        const poster = document.createElement("button");
+        poster.className = "gal-poster";
+        poster.title = "Reproducir";
+        if (item.thumb) poster.style.backgroundImage = `url('${item.thumb}')`;
+        poster.onclick = () => play(poster, first);
+        el.append(poster);
+      } else {
+        // Anuncio sin render: solo enlaces.
+        const ph = document.createElement("div");
+        ph.className = "gal-poster"; ph.style.cursor = "default";
+        el.append(ph);
+      }
+
+      const meta = document.createElement("div");
+      meta.className = "gal-meta";
+      const badge = item.mode === "ad"
+        ? '<span class="gal-badge b-ad">Anuncio</span>'
+        : '<span class="gal-badge b-mont">Recortes</span>';
+      const extra = item.clips.length > 1 ? ` · ${item.clips.length} videos` : "";
+      let links = "";
+      if (item.preview_url) links += `<a href="${item.preview_url}">✏️ Editar</a>`;
+      if (item.project_url) links += `<a href="${item.project_url}">⬇️ Proyecto</a>`;
+      meta.innerHTML =
+        `<div class="gal-title">${badge}${item.title || item.id}</div>` +
+        `<div class="gal-sub">${fecha(item.created_at)}${extra}</div>` +
+        (links ? `<div class="gal-sub gal-links" style="margin-top:6px">${links}</div>` : "");
+      el.append(meta);
+
+      // Si hay varios clips, botones para cambiar de video.
+      if (item.clips.length > 1) {
+        const tabs = document.createElement("div");
+        tabs.className = "gal-sub gal-links";
+        tabs.style.padding = "0 11px 10px";
+        item.clips.forEach((u, i) => {
+          const a = document.createElement("a");
+          a.href = "javascript:void(0)"; a.textContent = `#${i + 1}`;
+          a.onclick = () => {
+            const poster = el.querySelector(".gal-poster, video");
+            if (poster.tagName === "VIDEO") { poster.src = u; poster.play().catch(() => {}); }
+            else play(poster, u);
+          };
+          tabs.append(a);
+        });
+        el.append(tabs);
+      }
+      return el;
+    }
+
+    async function load() {
+      try {
+        const r = await fetch("/api/galeria");
+        const { items } = await r.json();
+        if (!items.length) { empty.style.display = "block"; return; }
+        items.forEach((it) => grid.append(card(it)));
+      } catch (e) {
+        empty.textContent = "No se pudo cargar la galería: " + e.message;
+        empty.style.display = "block";
+      }
+    }
+    load();
+  </script>
+</body>
+</html>

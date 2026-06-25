@@ -14,6 +14,7 @@ import logging
 import queue
 import random
 import shutil
+import subprocess
 import threading
 import time
 import uuid
@@ -289,6 +290,55 @@ class JobManager:
             return target
         return None
 
+    def thumb_path(self, job_id: str, n: int) -> Path | None:
+        """Miniatura (primer frame) del clip ``n``, generada y cacheada con FFmpeg."""
+        clip = self.clip_path(job_id, n)
+        if not clip:
+            return None
+        thumb = clip.parent / f"thumb_{n}.jpg"
+        if not thumb.exists():
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-ss", "0.6", "-i", str(clip),
+                     "-frames:v", "1", "-vf", "scale=360:-2", str(thumb)],
+                    capture_output=True, check=True,
+                )
+            except Exception:  # noqa: BLE001 - si falla, la galería usa el <video>
+                return None
+        return thumb if thumb.exists() else None
+
+    def gallery(self, limit: int | None = None) -> list[dict]:
+        """Lista los últimos trabajos terminados con sus videos reproducibles.
+
+        Devuelve, del más reciente al más viejo, los jobs ``done`` que tengan al
+        menos un video reproducible (o, en modo anuncio sin render, su proyecto).
+        """
+        limit = limit or self._settings.galeria_max
+        items: list[dict] = []
+        for row in self._store.recent_done(limit):
+            job = self.get(row["id"])
+            if not job or job.status != JobStatus.DONE:
+                continue
+            clips = [f"/api/jobs/{job.id}/download/{i}"
+                     for i in range(1, job.n_clips + 1) if self.clip_path(job.id, i)]
+            is_ad = job.mode == "ad"
+            has_proj = is_ad and self.ad_project_dir(job.id) is not None
+            if not clips and not has_proj:
+                continue  # nada que mostrar (output ya purgado)
+            items.append({
+                "id": job.id,
+                "created_at": job.created_at,
+                "mode": job.mode,
+                "n_clips": len(clips),
+                "title": (job.filenames[0] if job.filenames else job.id),
+                "n_videos": len(job.filenames),
+                "clips": clips,
+                "thumb": f"/api/jobs/{job.id}/thumb/1" if clips else None,
+                "project_url": f"/api/jobs/{job.id}/project" if has_proj else None,
+                "preview_url": f"/preview/{job.id}" if has_proj else None,
+            })
+        return items
+
     def ad_zip_path(self, job_id: str) -> Path | None:
         """Ruta del .zip del proyecto Remotion (modo anuncio) si está listo."""
         job = self.get(job_id)
@@ -320,8 +370,8 @@ class JobManager:
 
     def _run_worker(self) -> None:
         """Bucle del trabajador: procesa jobs de la cola de a uno."""
-        cleanup.purge_old_outputs(
-            self._settings.outputs_dir, self._settings.retencion_horas
+        cleanup.purge_keep_recent(
+            self._settings.outputs_dir, self._settings.galeria_max
         )
         while True:
             kind, job_id = self._queue.get()
@@ -458,7 +508,7 @@ class JobManager:
                 self._music.pop(job_id, None)
                 self._voz.pop(job_id, None)
                 self._req_clips.pop(job_id, None)
-            cleanup.purge_old_outputs(settings.outputs_dir, settings.retencion_horas)
+            cleanup.purge_keep_recent(settings.outputs_dir, settings.galeria_max)
 
     def _process_ad(self, job_id: str, sources: list[Path],
                     work_dir: Path, output_dir: Path) -> None:
@@ -520,7 +570,7 @@ class JobManager:
                 videos, output_dir,
                 cta_texto=settings.cta_texto, whatsapp=settings.whatsapp_link,
                 vol=settings.musica_volumen, vol_duck=settings.musica_volumen_ducking,
-                sfx=sfx,
+                sfx=sfx, guides=library.list_guides(),
             )
             # Empaquetar el proyecto editable (.zip).
             shutil.make_archive(str(output_dir / "anuncio-remotion"), "zip",
@@ -545,7 +595,7 @@ class JobManager:
                 self._music.pop(job_id, None)
                 self._voz.pop(job_id, None)
                 self._req_clips.pop(job_id, None)
-            cleanup.purge_old_outputs(settings.outputs_dir, settings.retencion_horas)
+            cleanup.purge_keep_recent(settings.outputs_dir, settings.galeria_max)
 
     def _render_existing_ad(self, job_id: str, output_dir: Path | None = None,
                             videos_n: int | None = None) -> None:

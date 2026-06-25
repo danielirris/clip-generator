@@ -30,6 +30,41 @@ def delete_source(source: Path) -> None:
         logger.warning("No se pudo borrar el fuente %s: %s", source, exc)
 
 
+def purge_keep_recent(outputs_dir: Path, keep_n: int) -> int:
+    """Conserva los ``keep_n`` trabajos más recientes y borra el resto.
+
+    Se usa para alimentar la Galería: en vez de borrar por antigüedad (que haría
+    desaparecer los trabajos pasadas unas horas), mantenemos SIEMPRE los últimos
+    ``keep_n`` por fecha, y el disco queda acotado a esa cantidad de trabajos.
+
+    Args:
+        outputs_dir: carpeta ``storage/outputs`` (un subdirectorio por job).
+        keep_n: cuántos trabajos recientes conservar.
+
+    Returns:
+        Número de trabajos borrados.
+    """
+    if not outputs_dir.exists() or keep_n <= 0:
+        return 0
+    items = list(outputs_dir.iterdir())
+    try:
+        items.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    except OSError:
+        return 0
+    borrados = 0
+    for item in items[keep_n:]:
+        try:
+            if item.is_dir():
+                shutil.rmtree(item, ignore_errors=True)
+            else:
+                item.unlink()
+            borrados += 1
+            logger.info("Galería llena: borrado el trabajo viejo %s", item.name)
+        except OSError as exc:  # pragma: no cover - mejor esfuerzo
+            logger.warning("No se pudo borrar %s: %s", item, exc)
+    return borrados
+
+
 def purge_old_outputs(outputs_dir: Path, retencion_horas: int) -> int:
     """Elimina los outputs con antigüedad mayor a ``retencion_horas``.
 

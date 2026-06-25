@@ -315,6 +315,7 @@ def _default_plan(words) -> dict:
         "palette": ["#FF5C5C", "#FFB020", "#2ECC71", "#00C2FF", "#7C5CFF"],
         "subtitle_style": "pop", "intensidad": 70,
         "emphasis": [], "fullscreen": [], "pills": [], "emojis": [], "lists": [],
+        "guias": [],
     }
     # Intro full-screen por defecto con las primeras palabras.
     if words:
@@ -365,7 +366,8 @@ de edición. Devuelve EXCLUSIVAMENTE JSON válido:
 "fullscreen":[{{"at":<seg>,"top":"<línea pequeña MAYÚS, opcional>","key":"<palabra/frase clave grande>","sub":"<subtítulo fino, opcional>","emoji":"<emoji grande acorde, opcional>"}}],
 "lists":[{{"at":<seg>,"title":"<título corto de la lista>","items":["<item1>","<item2>"]}}],
 "pills":[{{"start":<seg>,"end":<seg>,"text":"<frase clave en MAYÚS>","emoji":"<emoji acorde>"}}],
-"emojis":[{{"at":<seg>,"emoji":"<emoji>"}}]}}
+"emojis":[{{"at":<seg>,"emoji":"<emoji>"}}],
+"guias":[{{"at":<seg>}}]}}
 
 Reglas:
 - CÍÑETE AL AUDIO (CRÍTICO): usa SOLO lo que dice la voz, literal. NO inventes ni
@@ -380,6 +382,11 @@ Reglas:
   ingredientes...). Conviértelo en una escena de lista a pantalla completa: el
   "title" y cada "item" salen del guion. 1-2 listas máx, 2-6 items. Si la voz no
   enumera nada, deja "lists" vacío.
+- guias: marca SOLO el segundo donde la voz OFRECE un recurso descargable: una
+  "guía", "ebook", "PDF", "plantilla", "checklist", "material", "regalo", o dice
+  "te la envío/mando", "descarga", "gratis al escribirnos". 0-3 momentos. Si la voz
+  NO ofrece nada descargable, deja "guias" vacío. (Encima se mostrará un video real
+  de la guía para dar confianza; tú solo marcas el segundo.)
 - pills: 2-5 en las frases más relevantes; "end" cuando la voz termina la frase.
 - emojis: 3-6, contextuales (🥛 leche, 🌱 natural, 💪 salud, 💰 dinero, ✨ beneficio...).
 - "palette": 4-6 colores vibrantes de alto contraste, **VARIADOS entre sí** (no todos el
@@ -481,9 +488,20 @@ TRANSCRIPCIÓN (timestamp en segundos):
                       "items": items})
     plan["lists"] = _spaced(lists, "at", 2.0, 2)
 
-    logger.info("Plan IA: tema=%r style=%s fs=%d pills=%d emojis=%d lists=%d",
+    guias = []
+    for it in data.get("guias", []) or []:
+        if not isinstance(it, dict):
+            continue
+        at = _clamp(it.get("at"))
+        if at is None:
+            continue
+        guias.append({"at": round(at, 2)})
+    plan["guias"] = _spaced(guias, "at", 4.0, 3)
+
+    logger.info("Plan IA: tema=%r style=%s fs=%d pills=%d emojis=%d lists=%d guias=%d",
                 plan["tema"], plan["subtitle_style"], len(plan["fullscreen"]),
-                len(plan["pills"]), len(plan["emojis"]), len(plan["lists"]))
+                len(plan["pills"]), len(plan["emojis"]), len(plan["lists"]),
+                len(plan["guias"]))
     return plan
 
 

@@ -73,6 +73,29 @@ async def config_page(request: Request) -> HTMLResponse:
     return TEMPLATES.TemplateResponse("config.html", {"request": request})
 
 
+@app.get("/galeria", response_class=HTMLResponse)
+async def galeria_page(request: Request) -> HTMLResponse:
+    """Galería de los últimos trabajos terminados (videos reproducibles)."""
+    return TEMPLATES.TemplateResponse("galeria.html", {"request": request})
+
+
+@app.get("/api/galeria")
+async def galeria_list() -> JSONResponse:
+    """Lista los últimos trabajos terminados con sus videos."""
+    return JSONResponse({"items": manager.gallery()})
+
+
+@app.get("/api/jobs/{job_id}/thumb/{n}")
+async def job_thumb(job_id: str, n: int) -> FileResponse:
+    """Miniatura (primer frame) del clip ``n`` del job."""
+    if not manager.get(job_id):
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    thumb = manager.thumb_path(job_id, n)
+    if not thumb:
+        raise HTTPException(status_code=404, detail="Miniatura no disponible")
+    return FileResponse(path=str(thumb), media_type="image/jpeg")
+
+
 @app.get("/api/library/music")
 async def library_list() -> JSONResponse:
     """Lista las pistas de la biblioteca de música."""
@@ -100,6 +123,35 @@ async def library_delete(name: str) -> JSONResponse:
     if not library.delete_music(name):
         raise HTTPException(status_code=404, detail="Pista no encontrada")
     return JSONResponse({"tracks": [p.name for p in library.list_music()]})
+
+
+@app.get("/api/library/guides")
+async def guides_list() -> JSONResponse:
+    """Lista los videos del stock de guías."""
+    return JSONResponse({"guides": [p.name for p in library.list_guides()]})
+
+
+@app.post("/api/library/guides")
+async def guides_add(files: list[UploadFile] = File(...)) -> JSONResponse:
+    """Añade uno o varios videos al stock de guías (se sobreponen en el anuncio)."""
+    settings.ensure_dirs()
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    added = 0
+    for vid in files:
+        if not vid.filename:
+            continue
+        tmp, name = await _save_upload(vid, max_bytes, library.VIDEO_EXT)
+        library.save_guide(tmp, name)
+        added += 1
+    return JSONResponse({"added": added, "guides": [p.name for p in library.list_guides()]})
+
+
+@app.delete("/api/library/guides/{name}")
+async def guides_delete(name: str) -> JSONResponse:
+    """Borra un video del stock de guías."""
+    if not library.delete_guide(name):
+        raise HTTPException(status_code=404, detail="Guía no encontrada")
+    return JSONResponse({"guides": [p.name for p in library.list_guides()]})
 
 
 @app.get("/api/config/prompt")
