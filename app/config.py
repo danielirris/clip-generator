@@ -93,6 +93,20 @@ class Settings(BaseSettings):
         """Carpeta de resultados finales (un subdirectorio por job)."""
         return self.storage_dir / "outputs"
 
+    @property
+    def effective_ffmpeg_threads(self) -> int:
+        """Hilos de FFmpeg a usar, dejando SIEMPRE 1 núcleo libre para el servidor.
+
+        Si ``ffmpeg_threads`` es 0 (auto), no usamos todos los núcleos: dejamos uno
+        para que Uvicorn siga respondiendo al healthcheck durante renders pesados y
+        EasyPanel no reinicie el contenedor (evita el 502 por saturación de CPU).
+        Si se fija un valor explícito por entorno, se respeta.
+        """
+        if self.ffmpeg_threads > 0:
+            return self.ffmpeg_threads
+        import os
+        return max(1, (os.cpu_count() or 2) - 1)
+
     def ensure_dirs(self) -> None:
         """Crea las carpetas de almacenamiento si no existen."""
         self.jobs_dir.mkdir(parents=True, exist_ok=True)

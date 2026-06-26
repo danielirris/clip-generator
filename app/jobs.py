@@ -488,7 +488,7 @@ class JobManager:
                 modo_transicion=settings.modo_transicion,
                 trans_dur=settings.trans_dur_s,
                 music_paths=music_paths,
-                threads=settings.ffmpeg_threads,
+                threads=settings.effective_ffmpeg_threads,
             )
 
             # 5) Exportar proyecto Remotion editable.
