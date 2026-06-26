@@ -122,22 +122,26 @@ def build_beat_ass(segments: list[Segment], beat_start: float, beat_dur: float) 
 # --------------------------------------------------------------------------- #
 def build_video_filter(modo_fondo: str) -> str:
     """Filtro que produce ``[v]`` en 9:16 según el modo de fondo."""
+    # setsar=1 + format=yuv420p al final: TODOS los fragmentos quedan idénticos en
+    # SAR (relación de píxel) y formato, sin importar de qué video salgan. Sin esto,
+    # un video anamórfico produce un SAR distinto y el filtro concat falla (-22).
+    norm = f",fps={FPS},setsar=1,format=yuv420p[v]"
     if modo_fondo == "crop":
         return (
             f"[0:v]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
-            f"crop={WIDTH}:{HEIGHT},fps={FPS}[v]"
+            f"crop={WIDTH}:{HEIGHT}{norm}"
         )
     if modo_fondo == "pad_negro":
         return (
             f"[0:v]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease,"
-            f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black,fps={FPS}[v]"
+            f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black{norm}"
         )
     return (
         f"[0:v]split=2[bg][fg];"
         f"[bg]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
         f"crop={WIDTH}:{HEIGHT},boxblur=20:2[bgb];"
         f"[fg]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease[fgs];"
-        f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,fps={FPS}[v]"
+        f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2{norm}"
     )
 
 
@@ -182,9 +186,15 @@ def build_concat_filter_cmd(files: list[Path], dest: Path, threads: int = 1) -> 
     cmd: list[str] = ["ffmpeg", "-y", "-threads", str(threads)]
     for f in files:
         cmd += ["-i", str(f)]
-    labels = "".join(f"[{i}:v]" for i in range(len(files)))
+    # Re-normaliza cada entrada (SAR/fps/formato/escala) antes de concatenar para
+    # que NUNCA falle por parámetros distintos entre fragmentos.
+    norm = ";".join(
+        f"[{i}:v]scale={WIDTH}:{HEIGHT},setsar=1,fps={FPS},format=yuv420p[c{i}]"
+        for i in range(len(files))
+    )
+    labels = "".join(f"[c{i}]" for i in range(len(files)))
     cmd += [
-        "-filter_complex", f"{labels}concat=n={len(files)}:v=1:a=0[v]",
+        "-filter_complex", f"{norm};{labels}concat=n={len(files)}:v=1:a=0[v]",
         "-filter_threads", str(threads),
         "-map", "[v]", *_VIDEO_ENC, "-threads", str(threads), str(dest),
     ]
@@ -233,16 +243,22 @@ def build_xfade_cmd(
     for f in seg_files:
         cmd += ["-i", str(f)]
     offsets = _xfade_offsets(durs, overlap)
+    # Normaliza cada bloque (SAR/fps/formato/escala) para que xfade nunca falle por
+    # parámetros distintos entre bloques.
+    norm = [
+        f"[{i}:v]scale={WIDTH}:{HEIGHT},setsar=1,fps={FPS},format=yuv420p[c{i}]"
+        for i in range(len(seg_files))
+    ]
     parts: list[str] = []
-    prev = "[0:v]"
+    prev = "[c0]"
     for i in range(1, len(seg_files)):
         out = f"[x{i}]" if i < len(seg_files) - 1 else "[vout]"
         parts.append(
-            f"{prev}[{i}:v]xfade=transition={types[i - 1]}:"
+            f"{prev}[c{i}]xfade=transition={types[i - 1]}:"
             f"duration={overlap}:offset={offsets[i - 1]}{out}"
         )
         prev = out
-    cmd += ["-filter_complex", ";".join(parts), "-filter_threads", str(threads),
+    cmd += ["-filter_complex", ";".join(norm + parts), "-filter_threads", str(threads),
             "-map", "[vout]", *_VIDEO_ENC, "-threads", str(threads), str(dest)]
     return cmd
 
