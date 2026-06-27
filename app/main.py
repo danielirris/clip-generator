@@ -13,10 +13,13 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFil
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 
 from app.config import BASE_DIR, get_settings
 from app.jobs import manager
 from app import library
+from app.pipeline import tts
+from app.tts_routes import router as tts_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,6 +50,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="clip-generator", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
+app.include_router(tts_router)  # /api/voces, /api/generar-voz
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -183,6 +187,9 @@ async def create_job(
     guias: list[UploadFile] = File(None),
     mode: str = Form("montage"),
     num_clips: int = Form(0),
+    tts_texto: str = Form(""),
+    tts_voz: str = Form(""),
+    tts_velocidad: float = Form(0.0),
 ) -> JSONResponse:
     """Recibe varios videos (compendio) y varias pistas de música; crea un job.
 
@@ -211,6 +218,23 @@ async def create_job(
                 guias_saved.append(await _save_upload(g, max_bytes, ALLOWED_GUIDE_EXT))
         if voz is not None and voz.filename:
             voz_saved = await _save_upload(voz, max_bytes, ALLOWED_AUDIO_EXT)
+        elif tts_texto.strip():
+            # Texto -> voz con ElevenLabs (la locución se genera, no se sube).
+            if not tts.disponible():
+                raise HTTPException(
+                    status_code=503,
+                    detail="Para generar la voz falta ELEVENLABS_API_KEY en el servidor.",
+                )
+            try:
+                voz_path = await run_in_threadpool(
+                    tts.generar_voz, tts_texto,
+                    voz=(tts_voz or None),
+                    velocidad=(tts_velocidad or None),
+                    out_dir=settings.storage_dir / "tts",
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=502, detail=str(exc))
+            voz_saved = (voz_path, "voz_ia.mp3")
     except HTTPException:
         for tmp, _ in saved:
             tmp.unlink(missing_ok=True)

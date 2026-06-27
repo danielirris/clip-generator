@@ -27,6 +27,18 @@ class Settings(BaseSettings):
     openai_transcribe_model: str = "whisper-1"
     openai_analyze_model: str = "gpt-4o-mini"
 
+    # --- Claves de otros proveedores (leídas del entorno; el front NUNCA las ve) ---
+    elevenlabs_api_key: str = ""
+    groq_api_key: str = ""      # reservada (no se usa hoy; disponible si se necesita)
+    gemini_api_key: str = ""    # reservada (no se usa hoy; disponible si se necesita)
+
+    # --- Texto a voz (ElevenLabs) ---
+    elevenlabs_model: str = "eleven_multilingual_v2"  # soporta español
+    tts_voz_default: str = "Sarah"                    # clave del catálogo VOCES
+    tts_velocidad_default: float = 1.1                # 0.7-1.2 (>1 acelera)
+    tts_estabilidad_default: float = 0.5
+    tts_similitud_default: float = 0.75
+
     # --- Especificación de los clips ---
     num_clips: int = 5            # cuántos clips generar por compendio (3-5 típico)
     duracion_total_s: int = 48

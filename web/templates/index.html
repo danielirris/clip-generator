@@ -56,6 +56,27 @@
           <input type="file" id="voz" name="voz" accept=".mp3,.m4a,.wav,.aac,.ogg">
         </label>
 
+        <div class="music-row" id="tts-row" style="display:none">
+          🗣️ <b>…o genera la voz con IA (texto → voz):</b> escribe el guion (gancho,
+          cuerpo y cierre). Si escribes aquí, <b>no</b> hace falta subir locución: la
+          app genera la voz con ElevenLabs y de ahí salen los subtítulos.
+          <textarea id="tts_texto" name="tts_texto" rows="4"
+            placeholder="Gancho: ¿Sabías que…?&#10;Cuerpo: explica el beneficio…&#10;Cierre: escríbenos por WhatsApp."
+            style="width:100%;margin-top:8px;padding:9px;border-radius:8px;border:1px solid #2a2f3a;background:#0f1115;color:#e8eaed;box-sizing:border-box;font-family:inherit"></textarea>
+          <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:6px">🎚️ Voz
+              <select id="tts_voz" name="tts_voz"
+                style="padding:7px;border-radius:8px;border:1px solid #2a2f3a;background:#0f1115;color:#e8eaed"></select>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px">⚡ Velocidad
+              <input type="number" id="tts_velocidad" name="tts_velocidad"
+                min="0.7" max="1.2" step="0.05" value="1.1"
+                style="width:80px;padding:7px;border-radius:8px;border:1px solid #2a2f3a;background:#0f1115;color:#e8eaed">
+            </label>
+          </div>
+          <p id="tts-hint" style="color:var(--muted);font-size:.82rem;margin-top:6px"></p>
+        </div>
+
         <label for="guias" class="music-row" id="guias-row" style="display:none">
           📘 <b>Video(s) de la guía (Apartado 2):</b> opcional. Cuando la IA detecte
           que el audio ofrece una guía/recurso, mostrará este video <b>sobrepuesto</b>
@@ -99,6 +120,6 @@
     </footer>
   </main>
 
-  <script src="/static/app.js?v=guias-1"></script>
+  <script src="/static/app.js?v=tts-1"></script>
 </body>
 </html>

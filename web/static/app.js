@@ -87,6 +87,9 @@
     const voz = $("voz").files[0];
     if (voz) data.append("voz", voz);
     for (const g of $("guias").files) data.append("guias", g);
+    data.append("tts_texto", $("tts_texto").value || "");
+    data.append("tts_voz", $("tts_voz").value || "");
+    data.append("tts_velocidad", $("tts_velocidad").value || "1.1");
 
     show(progressCard);
     setProgress("queued", 2, "Subiendo videos…");
@@ -245,6 +248,7 @@
     const mode = document.querySelector('input[name="mode"]:checked').value;
     $("voz-row").style.display = mode === "ad" ? "block" : "none";
     $("guias-row").style.display = mode === "ad" ? "block" : "none";
+    $("tts-row").style.display = mode === "ad" ? "block" : "none";
     $("count-row").style.display = mode === "ad" ? "none" : "flex";
     $("music-hint").textContent =
       mode === "ad"
@@ -255,6 +259,26 @@
     r.addEventListener("change", syncModeUI)
   );
   syncModeUI();
+
+  // Cargar el catálogo de voces para el menú de "texto -> voz".
+  (async () => {
+    try {
+      const r = await fetch("/api/voces");
+      const { voces, disponible } = await r.json();
+      const sel = $("tts_voz");
+      sel.innerHTML = "";
+      (voces || []).forEach((nombre) => {
+        const o = document.createElement("option");
+        o.value = nombre; o.textContent = nombre;
+        sel.append(o);
+      });
+      $("tts-hint").textContent = disponible
+        ? "La voz se genera al crear el anuncio (tarda unos segundos)."
+        : "⚠️ Falta ELEVENLABS_API_KEY en el servidor: sube una locución o configúrala.";
+    } catch (e) {
+      $("tts-hint").textContent = "No se pudo cargar el catálogo de voces.";
+    }
+  })();
 
   // Al cargar la página: si había un trabajo en curso (p.ej. se cortó la luz),
   // reanuda el seguimiento automáticamente.
